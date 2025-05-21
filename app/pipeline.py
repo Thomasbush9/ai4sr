@@ -18,7 +18,7 @@ def extract_and_process_pdf(pdf_bytes:bytes, filename:str)->dict:
             "text_sample": text[:500],
             "sections": sections
             }
-    save_path = os.path.join("data",filename + ".json")
+    save_path = os.path.join(os.getenv('DATA'),filename + ".json")
     os.makedirs("data", exist_ok=True)
     with open(save_path, "w") as f:
         json.dump(result, f, indent=2)
