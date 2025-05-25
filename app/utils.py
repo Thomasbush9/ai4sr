@@ -41,4 +41,3 @@ def split_into_sections(text:str)-> dict:
         sections[header] = text[start:end].strip()
     return sections
 
-

@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  rag-app:
+    build: .
+    container_name: rag_app
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data   # This overrides the Mac path inside the container
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
+      - /Users/thomasbush/Downloads:/app/downloads
+    command: python app/example.py
+

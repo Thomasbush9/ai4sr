@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 import logging
 import sys
+from pathlib import Path
 
 # Configure logging
 logging.basicConfig(
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 def main():
     # Load environment variables
     load_dotenv()
-    
+
     # Print environment variables (excluding sensitive data)
     logger.info("Checking environment variables...")
     required_vars = [
@@ -29,16 +30,19 @@ def main():
             logger.info(f"{var} is set")
         else:
             logger.error(f"{var} is not set")
-    
+
     # Initialize RAG system
     try:
         rag = RAGSystem()
     except Exception as e:
         logger.error(f"Failed to initialize RAG system: {str(e)}")
         return
-    
-    # Example: Process a document
-    document_path = "/Users/thomasbush/Downloads/hopfield-2009-neurodynamics-of-mental-exploration.pdf"
+
+    # Load file paths from .env or default to Docker volume paths
+    download_dir = Path(os.getenv("DOWNLOAD_DIR", "/app/downloads"))
+    filename = "hopfield-2009-neurodynamics-of-mental-exploration.pdf"
+    document_path = download_dir / filename
+
     try:
         logger.info(f"Processing document: {document_path}")
         metadata = rag.process_document(document_path)
