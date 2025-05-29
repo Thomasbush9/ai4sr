@@ -16,7 +16,7 @@ attrs==25.3.0
 azure-common==1.1.28
 azure-core==1.34.0
 azure-identity==1.22.0
-azure-search-documents==11.5.2
+azure-search-documents==11.6.0b1
 babel==2.17.0
 backoff==2.2.1
 beautifulsoup4==4.13.4
