@@ -14,7 +14,7 @@ from azure.search.documents.indexes.models import (
     VectorSearchAlgorithmKind,
     VectorSearchAlgorithmMetric,
 )
-from azure.search.documents.models import VectorQuery
+from azure.search.documents.models import VectorizedQuery
 import logging
 from typing import List, Dict, Any
 
@@ -107,18 +107,16 @@ class AzureSearchManager:
                 credential=self.credential
             )
 
-            # ✅ Correct use of VectorQuery
-            vector_query = VectorQuery(
+            vector_query = VectorizedQuery(
                 vector=query_vector,
-                k=top_k,
-                field="embedding",
-                kind="vector"
+                k_nearest_neighbors=top_k,
+                fields="embedding"
             )
 
             results = search_client.search(
-                search_text="*",  # Must be non-empty
-                select=["id", "content", "document_id", "chunk_index"],
-                vector_queries=[vector_query]
+                search_text="*",
+                vector_queries=[vector_query],
+                select=["id", "content", "document_id", "chunk_index"]
             )
 
             return [dict(result) for result in results]
