@@ -40,14 +40,14 @@ class AzureSearchManager:
                     type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
                     searchable=True,
                     vector_search_dimensions=vector_dimensions,
-                    vector_search_profile_name="myHnswProfile"  # ✅ must match profile below
+                    vector_search_profile_name="myHnswProfile"
                 )
             ]
 
             vector_search = VectorSearch(
                 algorithms=[
                     HnswAlgorithmConfiguration(
-                        name="myHnsw",  # ✅ referenced by profile
+                        name="myHnsw",  
                         kind=VectorSearchAlgorithmKind.HNSW,
                         parameters=HnswParameters(
                             m=4,
@@ -59,8 +59,8 @@ class AzureSearchManager:
                 ],
                 profiles=[
                     VectorSearchProfile(
-                        name="myHnswProfile",  # ✅ used by field
-                        algorithm_configuration_name="myHnsw"  # ✅ links to algorithm
+                        name="myHnswProfile",  
+                        algorithm_configuration_name="myHnsw"
                     )
                 ]
             )
