@@ -13,7 +13,7 @@ def _(mo):
     Todo:
 
     1. Use multiple sources
-    2. add screening 
+    2. add screening
     """
     )
     return
@@ -40,12 +40,12 @@ def _(quote, requests):
             f"&retmax=100&retmode=json"
             f"&mindate={year_from}&maxdate={year_to}&datetype=pdat"
         )
-    
+
             ids = requests.get(url).json()['esearchresult']['idlist']
     else:
         url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term{quote(keywords)}&retmax=100&retmode=json"
         ids = requests.get(url).json()['esearchresult']['idlist']
-    return (ids,)
+    return ids, keywords
 
 
 @app.cell
@@ -98,6 +98,27 @@ def _(fetch_pubmed_metadata, ids):
     df = pd.DataFrame(metadata)
     print(df.head())
 
+    return (df,)
+
+
+@app.cell
+def _(df, keywords):
+    # let's try to calculate the revelance score:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    query = keywords.strip("AND")
+    corpus = df['title'].fillna('').tolist()
+    texts = [query] + corpus
+
+    vectorizer = TfidfVectorizer(stop_words='english')
+    X = vectorizer.fit_transform(texts)
+    query_vec = X[0]
+    abstract_vec = X[1:]
+
+    similarities = cosine_similarity(query_vec, abstract_vec).flatten()
+    df['rev_score']  = similarities
+    df
     return
 
 
