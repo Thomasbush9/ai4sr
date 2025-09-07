@@ -10,6 +10,7 @@ import pandas as pd
 import requests
 import time
 from keyword_exp import KeywordGeneratorProgram
+from tabulate import tabulate
 
 # ---- Config ----
 KEYWORD = "Cocaine consumption"
@@ -127,6 +128,6 @@ if __name__ == "__main__":
     ])
 
     # Preview + (optional) save
-    print(df.head(10).to_string(index=False))
-    # df.to_csv("pubmed_results.csv", index=False)
+    print(tabulate(df.head(10), headers="keys", tablefmt="psql"))
+    df.to_csv("pubmed_results.csv", index=False)
 
