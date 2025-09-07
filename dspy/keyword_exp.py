@@ -103,6 +103,18 @@ class KeywordGeneratorProgram(dspy.Module):
             "boolean_pubmed": boolean_pubmed,
         }
 
+class SynonymGenerator(dspy.Signature):
+    """Generates n synonyms given a input word and a number"""
+    word: str = dspy.InputField()
+    n: int = dspy.InputField()
+    synonyms: List[str] = dspy.OutputField()
+
+class SynonymGeneratorProgram(dspy.Module):
+    def __init__(self) -> None:
+        self.synonym_generator = dspy.Predict(SynonymGenerator)
+    def forward(self, word, n,  **kwargs):
+        return self.synonym_generator(word=word, n=n).synonyms
+
 if __name__ == "__main__":
     load_dotenv()
     OPENAI_KEY=os.getenv("OPENAI_KEY")
@@ -113,8 +125,14 @@ if __name__ == "__main__":
     )
     dspy.configure(lm=lm)
     kg = KeywordGeneratorProgram()
+    sg = SynonymGeneratorProgram()
     res = kg("Do SGLT2 inhibitors reduce hospitalization in adults with HFrEF?")
     print(res["keywords"])
     print(res["boolean_pubmed"])
+
+    # try synonyms:
+    synonyms = sg(word=res["keywords"][0], n=5)
+    print(synonyms)
+
 
 
