@@ -112,9 +112,9 @@ if __name__ == "__main__":
         max_tokens=256# or the exact model you're using
     )
     dspy.configure(lm=lm)
+    kg = KeywordGeneratorProgram()
+    res = kg("Do SGLT2 inhibitors reduce hospitalization in adults with HFrEF?")
+    print(res["keywords"])
+    print(res["boolean_pubmed"])
 
-    # If you see the same complaint, pass the new name:
-    print(lm("Say this is a test!", temperature=0.7))
-    print(lm(messages=[{"role": "user", "content": "Say this is a test!"}],
-            ))
 

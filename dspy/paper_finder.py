@@ -9,6 +9,7 @@ from tqdm import tqdm
 import pandas as pd
 import requests
 import time
+from keyword_exp import KeywordGeneratorProgram
 
 # ---- Config ----
 KEYWORD = "Cocaine consumption"
