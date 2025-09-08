@@ -66,10 +66,10 @@ def crossref_citations(doi: str) -> int | None:
     return None
 
 # function to extract refs
-def articles_fetchers(keyword, n:int=20, include_citations:bool=True):
+def articles_fetchers(query: str, n:int=20, include_citations:bool=True):
     """It returns a df with n articles"""
     fetch = PubMedFetcher()
-    pmids = fetch.pmids_for_query(keyword, retmax=n) or []
+    pmids = fetch.pmids_for_query(query, retmax=n) or []
     pmids = list(dict.fromkeys(pmids))
     records = []
     for pmid in tqdm(pmids, desc="Fetching PubMed records"):
@@ -131,6 +131,7 @@ if __name__ == "__main__":
     mesh = {"cocaine": '"Cocaine"[mh]', "risk factors": '"Risk Factors"[mh]'}  # optional
     q = build_pubmed_query_from_concepts(concepts, field="tiab", mesh_hints=mesh)
     q = append_filters(q, english=True, humans=True, year_from=2015)
-    print(q)
+    df = articles_fetchers(q, n=10, include_citations=True)
+
 
 
