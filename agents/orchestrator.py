@@ -1,7 +1,7 @@
 from pathlib import Path
 import os
 from tqdm import tqdm
-from agents.utils import build_pubmed_query_from_keywords
+from agents.utils import build_pubmed_query_from_concepts, build_pubmed_query_from_keywords
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional, Literal
 from argparse import ArgumentParser
@@ -9,8 +9,9 @@ from argparse import ArgumentParser
 import dspy
 import pandas as pd
 
-from agents.keyword_exp import KeywordGeneratorProgram, SynonymGeneratorProgram
+from agents.keyword_exp import KeywordGeneratorProgram, SynonymGeneratorProgram, ConceptGenerator
 from agents.paper_finder import fetch_from_keywords, articles_fetchers, append_filters
+from agents.utils import parse_concepts
 
 
 
@@ -34,18 +35,19 @@ if __name__ == "__main__":
     dspy.configure(lm=lm)
 
     keyword_gen = KeywordGeneratorProgram()
+    concept_gen = dspy.Predict(ConceptGenerator)
     keywords = keyword_gen(query)
     boolean_keys = keywords["boolean_pubmed"]
     keywords = keywords["keywords"]
 
     # skip syn now
-    print(f"keywords Generated:{keywords}")
-    q = build_pubmed_query_from_keywords(keywords, field="tiab", mesh_hints=None)
-    q = append_filters(q, english=True, humans=True, year_from=2015)
-    print(q)
+    concepts = concept_gen(keywords=keywords).concepts
+    concepts = parse_concepts(concepts)
+    q = build_pubmed_query_from_concepts(concepts, field="tiab", mesh_hints=None)
+#    q = append_filters(q, english=True, humans=True, year_from=2015)
 
-#    df = articles_fetchers(q, n=n, include_citations=False)
-#    print(df.head())
+    df = articles_fetchers(q, n=n, include_citations=False)
+    print(df.head())
 
 
 

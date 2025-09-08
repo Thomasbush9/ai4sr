@@ -1,5 +1,8 @@
 from __future__ import annotations
-from typing import Iterable, List, Dict, Optional, Union
+from typing import Iterable, List, Dict, Optional, Union, Sequence
+import json
+import re
+import ast
 
 
 # -- functions for paper findings script
@@ -76,6 +79,9 @@ def build_pubmed_query_from_concepts(
     blocks: List[str] = []
     seen_any: set[str] = set()
     for syns in concepts:
+        if isinstance(syns, str):
+            syns=[syns]
+        syns = [s for s in syns if isinstance(s, str) and s.strip() not in {"[", "]", ","}]
         syns = _dedupe_keep_order(syns)
         if not syns:
             continue
@@ -112,3 +118,50 @@ def append_filters(
         y2 = str(year_to or 3000)
         parts.append(f'("{y1}"[dp] : "{y2}"[dp])')
     return " AND ".join(parts)
+
+
+def parse_concepts(concepts: Union[str, Sequence]) -> List[List[str]]:
+    """
+    Accepts:
+      - stringified list-of-lists (JSON or Python style)
+      - list-of-lists
+      - flat list (will be wrapped as one group)
+    Returns: List[List[str]]
+    """
+    # 1) parse if it's a string
+    if isinstance(concepts, str):
+        s = concepts.strip()
+        if s and not (s.startswith('[') and s.endswith(']')):
+            s = '[' + s + ']'                   # allow 'a,b' → ['a,b'] → split later
+        try:
+            data = json.loads(s)
+        except Exception:
+            data = ast.literal_eval(s)
+    else:
+        data = concepts
+
+    # 2) normalize to list-of-lists
+    if not isinstance(data, (list, tuple)):
+        data = [[str(data)]]
+    elif all(not isinstance(x, (list, tuple)) for x in data):
+        data = [list(data)]
+
+    # 3) clean + dedupe each group
+    out: List[List[str]] = []
+    for group in data:
+        if isinstance(group, str):
+            # split loose "a, b; c" groups if they slipped in
+            toks = [p.strip(" '\"") for p in re.split(r'[;,]', group) if p.strip(" '\"")]
+        else:
+            toks = [str(p).strip(" '\"") for p in group if str(p).strip()]
+
+        seen = set(); cleaned = []
+        for t in toks:
+            if t in {"[", "]", ","} or (len(t) == 1 and not t.endswith("*")):
+                continue
+            low = t.lower()
+            if low not in seen:
+                seen.add(low); cleaned.append(t)
+        if cleaned:
+            out.append(cleaned)
+    return out

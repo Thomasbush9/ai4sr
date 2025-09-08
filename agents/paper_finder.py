@@ -67,17 +67,17 @@ def crossref_citations(doi: str) -> int | None:
     return None
 
 # function to extract refs
-def articles_fetchers(query: str, n:int=20, include_citations:bool=True, save:bool=False):
-    """It returns a df with n articles"""
+def articles_fetchers(query: str, n: int = 20, include_citations: bool = True, save: bool = False):
     fetch = PubMedFetcher()
     pmids = fetch.pmids_for_query(query, retmax=n) or []
     pmids = list(dict.fromkeys(pmids))
+
     records = []
     for pmid in tqdm(pmids, desc="Fetching PubMed records"):
         try:
             art = fetch.article_by_pmid(pmid)
         except mp_exceptions.MetaPubError:
-            continue  # skip records we can't resolve
+            continue
         except Exception:
             continue
 
@@ -98,31 +98,22 @@ def articles_fetchers(query: str, n:int=20, include_citations:bool=True, save:bo
             cites = crossref_citations(doi)
             time.sleep(REQUEST_DELAY)
 
-        records.append(
-            {
-                "pmid": pmid,
-                "pmcid": pmcid,
-                "title": title,
-                "abstract": abstract,
-                "year": year,
-                "authors": authors,
-                "journal": journal,
-                "volume": volume,
-                "issue": issue,
-                "doi": doi,
-                "pubmed_url": pubmed_url,
-                "doi_url": doi_url,
-                "citations_crossref": cites,
-            }
-        )
-        df = pd.DataFrame.from_records(records, columns=[
-        "pmid","pmcid","title","abstract","year","authors","journal","volume","issue","doi","pubmed_url","doi_url","citations_crossref"
+        records.append({
+            "pmid": pmid, "pmcid": pmcid, "title": title, "abstract": abstract, "year": year,
+            "authors": authors, "journal": journal, "volume": volume, "issue": issue, "doi": doi,
+            "pubmed_url": pubmed_url, "doi_url": doi_url, "citations_crossref": cites,
+        })
+
+    df = pd.DataFrame.from_records(records, columns=[
+        "pmid","pmcid","title","abstract","year","authors","journal","volume","issue",
+        "doi","pubmed_url","doi_url","citations_crossref"
     ])
-        if save:
-          df.to_csv(f"{datetime.now}_papers.csv")
-        return df
 
+    if save:
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        df.to_csv(f"{ts}_papers.csv", index=False)
 
+    return df
 
 def fetch_from_keywords(keywords, *, english=False, humans=False, year_from=None, year_to=None, **kwargs):
     q = build_pubmed_query_from_keywords(keywords, field="tiab")
