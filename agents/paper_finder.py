@@ -1,22 +1,17 @@
-# Improved PubMed fetcher: builds a clean DataFrame with title, abstract, year,
-# authors, journal, volume, issue, DOI, PubMed/DOI links, and (optionally) citation counts via Crossref.
-
-# pip install metapub pandas tqdm python-dotenv requests
-
 from dotenv import load_dotenv
 from metapub import PubMedFetcher, exceptions as mp_exceptions
 from tqdm import tqdm
 import pandas as pd
 import requests
 import time
-from keyword_exp import KeywordGeneratorProgram
+from agents.keyword_exp import KeywordGeneratorProgram
 from tabulate import tabulate
+from typing import Iterable, List, Dict, Optional, Union
+from __future__ import annotations
 
 # ---- Config ----
-KEYWORD = "Cocaine consumption"
-NUM_ARTICLES = 10
-INCLUDE_CITATIONS = True   # set False to skip Crossref calls (faster)
 REQUEST_DELAY = 0.1        # polite delay between Crossref calls (seconds)
+STOPWORDS = {"and","or","the","of","in","on","for","with","to"}
 
 # ---- Helpers ----
 def norm(s):
@@ -71,14 +66,12 @@ def crossref_citations(doi: str) -> int | None:
         return None
     return None
 
-# ---- Main ----
-if __name__ == "__main__":
-    load_dotenv()
-
+# function to extract refs
+def articles_fetchers(keyword, n:int=20, include_citations:bool=True):
+    """It returns a df with n articles"""
     fetch = PubMedFetcher()
-    pmids = fetch.pmids_for_query(KEYWORD, retmax=NUM_ARTICLES) or []
-    pmids = list(dict.fromkeys(pmids))  # de-duplicate but keep order
-
+    pmids = fetch.pmids_for_query(keyword, retmax=n) or []
+    pmids = list(dict.fromkeys(pmids))
     records = []
     for pmid in tqdm(pmids, desc="Fetching PubMed records"):
         try:
@@ -101,7 +94,7 @@ if __name__ == "__main__":
         doi_url = f"https://doi.org/{doi}" if doi else None
 
         cites = None
-        if INCLUDE_CITATIONS and doi:
+        if include_citations and doi:
             cites = crossref_citations(doi)
             time.sleep(REQUEST_DELAY)
 
@@ -123,11 +116,14 @@ if __name__ == "__main__":
             }
         )
 
-    df = pd.DataFrame.from_records(records, columns=[
+    return pd.DataFrame.from_records(records, columns=[
         "pmid","pmcid","title","abstract","year","authors","journal","volume","issue","doi","pubmed_url","doi_url","citations_crossref"
     ])
 
-    # Preview + (optional) save
-    print(tabulate(df.head(10), headers="keys", tablefmt="psql"))
-    df.to_csv("pubmed_results.csv", index=False)
+
+# ---- Main ----
+if __name__ == "__main__":
+    load_dotenv()
+
+    df = articles_fetchers()
 
