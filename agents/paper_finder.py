@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dotenv import load_dotenv
 from metapub import PubMedFetcher, exceptions as mp_exceptions
+from datetime import datetime
 from tqdm import tqdm
 import pandas as pd
 import requests
@@ -66,7 +67,7 @@ def crossref_citations(doi: str) -> int | None:
     return None
 
 # function to extract refs
-def articles_fetchers(query: str, n:int=20, include_citations:bool=True):
+def articles_fetchers(query: str, n:int=20, include_citations:bool=True, save:bool=False):
     """It returns a df with n articles"""
     fetch = PubMedFetcher()
     pmids = fetch.pmids_for_query(query, retmax=n) or []
@@ -114,12 +115,19 @@ def articles_fetchers(query: str, n:int=20, include_citations:bool=True):
                 "citations_crossref": cites,
             }
         )
-
-    return pd.DataFrame.from_records(records, columns=[
+        df = pd.DataFrame.from_records(records, columns=[
         "pmid","pmcid","title","abstract","year","authors","journal","volume","issue","doi","pubmed_url","doi_url","citations_crossref"
     ])
+        if save:
+          df.to_csv(f"{datetime.now}_papers.csv")
+        return df
 
 
+
+def fetch_from_keywords(keywords, *, english=False, humans=False, year_from=None, year_to=None, **kwargs):
+    q = build_pubmed_query_from_keywords(keywords, field="tiab")
+    q = append_filters(q, english=english, humans=humans, year_from=year_from, year_to=year_to)
+    return articles_fetchers(q, **kwargs)
 # ---- Main ----
 if __name__ == "__main__":
     load_dotenv()
