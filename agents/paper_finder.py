@@ -1,3 +1,4 @@
+from __future__ import annotations
 from dotenv import load_dotenv
 from metapub import PubMedFetcher, exceptions as mp_exceptions
 from tqdm import tqdm
@@ -7,11 +8,9 @@ import time
 from agents.keyword_exp import KeywordGeneratorProgram
 from tabulate import tabulate
 from typing import Iterable, List, Dict, Optional, Union
-from __future__ import annotations
-
+from agents.utils import build_pubmed_query_from_keywords, append_filters, build_pubmed_query_from_concepts
 # ---- Config ----
 REQUEST_DELAY = 0.1        # polite delay between Crossref calls (seconds)
-STOPWORDS = {"and","or","the","of","in","on","for","with","to"}
 
 # ---- Helpers ----
 def norm(s):
@@ -124,6 +123,14 @@ def articles_fetchers(keyword, n:int=20, include_citations:bool=True):
 # ---- Main ----
 if __name__ == "__main__":
     load_dotenv()
+    concepts = [
+    ["cocaine"],                                   # concept A (exposure)
+    ["consumption", "drug use", "substance abuse", "addiction"],   # concept B (behavior)
+    ["causes", "psychological factors", "socioeconomic factors"]   # concept C (factors/outcomes)
+    ]
+    mesh = {"cocaine": '"Cocaine"[mh]', "risk factors": '"Risk Factors"[mh]'}  # optional
+    q = build_pubmed_query_from_concepts(concepts, field="tiab", mesh_hints=mesh)
+    q = append_filters(q, english=True, humans=True, year_from=2015)
+    print(q)
 
-    df = articles_fetchers()
 
