@@ -5,7 +5,7 @@ import dspy
 
 # keywords_dspy.py
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Iterable
 
 import dspy
 
@@ -114,6 +114,21 @@ class SynonymGeneratorProgram(dspy.Module):
         self.synonym_generator = dspy.Predict(SynonymGenerator)
     def forward(self, word, n,  **kwargs):
         return self.synonym_generator(word=word, n=n).synonyms
+
+class ConceptGenerator(dspy.Signature):
+    def __init__(self, /, **data: Any) -> None:
+        """Given a list of Keywords for a research question, Return a list of
+        the main concepts from them:
+          concepts = [
+        ["population synonym 1", "population synonym 2"],
+        ["intervention synonym 1", "intervention synonym 2"],
+        .]
+        """
+        keywords : List[str] = dspy.InputField()
+
+        concepts : List[Iterable[str]] = dspy.OutputField()
+
+
 
 if __name__ == "__main__":
     load_dotenv()

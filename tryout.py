@@ -1,34 +1,25 @@
 import os
+from attachments.dspy import Attachments
+import dspy
+from pathlib import Path
 from dotenv import load_dotenv
-from openai import AzureOpenAI
+from typing import Literal, List
 
+# let's try to load
 load_dotenv()
-endpoint = "https://oai-h-ai4sr486387875618.openai.azure.com/"
-model_name = "gpt-5-mini"
-deployment = "gpt-5-mini"
+csv_path = "/Users/thomasbush/Downloads/data_names.csv"
+OPENAI_KEY = os.getenv("OPENAI_KEY")
+lm = dspy.LM(model="openai/gpt-4o-mini", api_key=OPENAI_KEY)
+dspy.configure(lm=lm)
 
-subscription_key = os.getenv("AZURE_OPENAI_KEY")
-api_version = "2024-12-01-preview"
+class NameRefiner(dspy.Signature):
+    """ Given the column of names categories extracted,
+    Convert each name into one of the predefined classes"""
 
-client = AzureOpenAI(
-    api_version=api_version,
-    azure_endpoint=endpoint,
-    api_key=subscription_key,
-)
+    document: Attachments = dspy.InputField()
+    names: List = dspy.OutputField()
 
-response = client.chat.completions.create(
-    messages=[
-        {
-            "role": "system",
-            "content": "You are a helpful assistant.",
-        },
-        {
-            "role": "user",
-            "content": "I am going to Paris, what should I see?",
-        }
-    ],
-    max_completion_tokens=16384,
-    model=deployment
-)
 
-print(response.choices[0].message.content)
+
+
+
