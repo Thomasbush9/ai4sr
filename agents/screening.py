@@ -27,7 +27,7 @@ class ScreenTriageSig(dspy.Signature):
 
     #outputs
     decision: Literal["include", "maybe", "exclude"] = dspy.OutputField()
-    score: int = dspy.OutputField()
+    score: int = dspy.OutputField(le=0, ge=100)
 
 class Screener(dspy.Module):
     def __init__(self) -> None:
