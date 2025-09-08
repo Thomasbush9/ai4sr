@@ -116,18 +116,9 @@ class SynonymGeneratorProgram(dspy.Module):
         return self.synonym_generator(word=word, n=n).synonyms
 
 class ConceptGenerator(dspy.Signature):
-    def __init__(self, /, **data: Any) -> None:
-        """Given a list of Keywords for a research question, Return a list of
-        the main concepts from them:
-          concepts = [
-        ["population synonym 1", "population synonym 2"],
-        ["intervention synonym 1", "intervention synonym 2"],
-        .]
-        """
-        keywords : List[str] = dspy.InputField()
-
-        concepts : List[Iterable[str]] = dspy.OutputField()
-
+    """Given a list of keywords for a research question, return grouped main concepts."""
+    keywords = dspy.InputField(desc="List of keywords", format=list)
+    concepts = dspy.OutputField(desc="List of concept groups (list of lists)", format=list)
 
 
 if __name__ == "__main__":
@@ -141,13 +132,20 @@ if __name__ == "__main__":
     dspy.configure(lm=lm)
     kg = KeywordGeneratorProgram()
     sg = SynonymGeneratorProgram()
+    cg = dspy.Predict(ConceptGenerator)
     res = kg("Do SGLT2 inhibitors reduce hospitalization in adults with HFrEF?")
-    print(res["keywords"])
-    print(res["boolean_pubmed"])
-
+    # print(res["keywords"])
+    # print(res["boolean_pubmed"])
+    #
     # try synonyms:
-    synonyms = sg(word=res["keywords"][0], n=5)
-    print(synonyms)
+    # synonyms = sg(word=res["keywords"][0], n=5)
+    # print(synonyms)
+    #
+    # generates the concepts:
+    concepts = cg(keywords=res["keywords"]).concepts
+    print(concepts)
+
+
 
 
 
