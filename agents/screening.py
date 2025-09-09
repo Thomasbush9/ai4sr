@@ -41,7 +41,7 @@ class Screener(dspy.Module):
                 )
         return {"decison":out["decision"], "score":out["score"]}
 #---------- Screener with CoT:
-class CoTScreener(dspy.Signature):
+class CoTScreenerSig(dspy.Signature):
     """
     Read the paper's *title* and *abstract* and decide whether to INCLUDE it in the
     systematic review. Think step-by-step with the PICO framework in mind.
@@ -61,6 +61,20 @@ class CoTScreener(dspy.Signature):
 
     #outputs
     decision: Literal["include", "maybe", "exclude"] = dspy.OutputField()
+
+class CoTScreener(dspy.Module):
+    def __init__(self, callbacks=None):
+        self.predict = dspy.ChainOfThought(CoTScreenerSig)
+    def forward(self, question:str, title:str,
+                abstract:str, example:str=None)->str:
+        if not example:
+            example = ""
+        decision = self.predict(
+                research_question=question,
+                title=title,
+                abstract=abstract,
+                example=example)
+        return decision.decision
 
 if __name__ == "__main__":
     load_dotenv()
