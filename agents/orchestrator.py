@@ -12,7 +12,7 @@ import pandas as pd
 from agents.keyword_exp import KeywordGeneratorProgram, SynonymGeneratorProgram, ConceptGenerator
 from agents.paper_finder import fetch_from_keywords, articles_fetchers, append_filters
 from agents.utils import parse_concepts
-
+from agents.screening import Screener
 
 
 if __name__ == "__main__":
@@ -36,6 +36,7 @@ if __name__ == "__main__":
 
     keyword_gen = KeywordGeneratorProgram()
     concept_gen = dspy.Predict(ConceptGenerator)
+    screener = Screener()
     keywords = keyword_gen(query)
     boolean_keys = keywords["boolean_pubmed"]
     keywords = keywords["keywords"]
@@ -48,6 +49,14 @@ if __name__ == "__main__":
 
     df = articles_fetchers(q, n=n, include_citations=False)
     print(df.head())
+    decisions=[]
+    for row in tqdm(df.itertuples()):
+        title = row.title
+        abstract = row.title
+        decisions.append(screener(question=query, title=title, abstract=abstract))
+
+    df_results = pd.DataFrame(decisions)
+
 
 
 
