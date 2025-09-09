@@ -40,6 +40,27 @@ class Screener(dspy.Module):
                 abstract = abstract or "",
                 )
         return {"decison":out["decision"], "score":out["score"]}
+#---------- Screener with CoT:
+class CoTScreener(dspy.Signature):
+    """
+    Read the paper's *title* and *abstract* and decide whether to INCLUDE it in the
+    systematic review. Think step-by-step with the PICO framework in mind.
+    Use PICO
+    --------
+    - P (Population): Who is studied?
+    - I (Intervention/Index): What is done/exposed?
+    - C (Comparator): Compared to what?
+    - O (Outcomes): What is measured?
+    Decision
+    --------
+    Return one of: "include", "exclude", or "uncertain"."""
+    research_question: str = dspy.InputField()
+    title: str = dspy.InputField()
+    abstract: str = dspy.InputField()
+    example: Optional[str] = dspy.InputField()
+
+    #outputs
+    decision: Literal["include", "maybe", "exclude"] = dspy.OutputField()
 
 if __name__ == "__main__":
     load_dotenv()
