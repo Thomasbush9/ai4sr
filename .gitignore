@@ -11,3 +11,4 @@ wheels/
 .env
 # datafile
 data/
+data/*.db
