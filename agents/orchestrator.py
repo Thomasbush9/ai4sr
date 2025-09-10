@@ -18,6 +18,8 @@ from ai4sr.db.repository import (
     get_or_create_project, bulk_ingest_from_dfs,
     list_included, list_maybe
 )
+load_dotenv()
+OPENAI_KEY= os.getenv("OPENAI_KEY")
 
 def run_selection_and_save(df: pd.DataFrame, decisions: list[dict], project_name: str):
     """
@@ -38,6 +40,36 @@ def run_selection_and_save(df: pd.DataFrame, decisions: list[dict], project_name
         included = list_included(con, project_id)  # list[dict] for GUI “Selected”
         maybes   = list_maybe(con, project_id)     # list[dict] for GUI “Maybe”
     return project_id, included, maybes, selected_papers, maybe_papers
+
+def literature_review(query:str, project_id:str,  n:int=10):
+    lm = dspy.LM(
+        api_key=OPENAI_KEY,
+        model="gpt-4o-mini",
+        max_tokens=256# or the exact model you're using
+        )
+    dspy.configure(lm=lm)
+
+    keyword_gen = KeywordGeneratorProgram()
+    concept_gen = dspy.Predict(ConceptGenerator)
+    screener = Screener()
+    keywords = keyword_gen(query)
+    boolean_keys = keywords["boolean_pubmed"]
+    keywords = keywords["keywords"]
+
+    # skip syn now
+    concepts = concept_gen(keywords=keywords).concepts
+    concepts = parse_concepts(concepts)
+    q = build_pubmed_query_from_concepts(concepts, field="tiab", mesh_hints=None)
+#    q = append_filters(q, english=True, humans=True, year_from=2015)
+
+    df = articles_fetchers(q, n=n, include_citations=False)
+    decisions=[]
+    for row in tqdm(df.itertuples()):
+        title = row.title
+        abstract = row.title
+        decisions.append(screener(question=query, title=title, abstract=abstract))
+
+    project_id, included, maybes, selected, maybe = run_selection_and_save(df, decisions, project_id)
 
 
 if __name__ == "__main__":
