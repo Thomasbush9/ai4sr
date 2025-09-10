@@ -59,7 +59,8 @@ if __name__ == "__main__":
     print(df_results.head(), df_results.columns)
 
     # filter df for only selected papers
-
+    selected_papers = df[df_results["decision"] == "include"]
+    maybe_papers = df[df_results["decision"] == "maybe"]
 
     # pass the result papers to the second screener
 
