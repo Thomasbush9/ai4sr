@@ -39,7 +39,7 @@ class Screener(dspy.Module):
                 title=title or "",
                 abstract = abstract or "",
                 )
-        return {"decison":out["decision"], "score":out["score"]}
+        return {"decision":out["decision"], "score":out["score"]}
 #---------- Screener with CoT:
 class CoTScreenerSig(dspy.Signature):
     """
