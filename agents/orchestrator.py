@@ -56,6 +56,17 @@ if __name__ == "__main__":
         decisions.append(screener(question=query, title=title, abstract=abstract))
 
     df_results = pd.DataFrame(decisions)
+    print(df_results.head(), df_results.columns)
+
+    # filter df for only selected papers
+
+
+    # pass the result papers to the second screener
+
+
+    # print the explanation + upload the papers to the db
+
+
 
 
 
