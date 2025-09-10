@@ -35,13 +35,13 @@ async function startConversation() {
 async function sendMessage() {
   const text = input.value.trim();
   if (!text || !conversationId) return;
-  input.value = "";
-  input.focus();
+
+  const mod = document.querySelector('input[name="mod"]:checked').value;
+  const pid = (document.getElementById("project_id")?.value || "").trim();
+
   addMessage("user", text);
   sendBtn.disabled = true;
-
-  // get currently selected modality
-  const mod = document.querySelector('input[name="mod"]:checked').value;
+  input.value = "";
 
   const res = await fetch("/api/message", {
     method: "POST",
@@ -49,13 +49,15 @@ async function sendMessage() {
     body: JSON.stringify({
       conversation_id: conversationId,
       text,
-      modality: mod
+      modality: mod,
+      project_id: pid || null
     })
   });
   const data = await res.json();
   addMessage("assistant", data.reply);
   sendBtn.disabled = false;
 }
+
 
 document.querySelectorAll('input[name="mod"]').forEach(r => {
   r.addEventListener("change", startConversation);

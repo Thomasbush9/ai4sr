@@ -20,58 +20,80 @@ from ai4sr.db.repository import (
 )
 load_dotenv()
 OPENAI_KEY= os.getenv("OPENAI_KEY")
-
-def run_selection_and_save(df: pd.DataFrame, decisions: list[dict], project_name: str):
+def run_selection_and_save(
+    df: pd.DataFrame,
+    decisions: list[dict],
+    project_id: int
+):
     """
     decisions must map 1:1 to df rows.
     Required keys: decision ('include'|'maybe'|'exclude'), score (0-100).
     Optional key: rationale (str).
     """
-    df_results = pd.DataFrame(decisions)  # may include 'rationale'
+    df_results = pd.DataFrame(decisions)
 
-    # (Optional) keep your quick views in memory
     selected_papers = df[df_results["decision"] == "include"]
     maybe_papers    = df[df_results["decision"] == "maybe"]
+    if not project_id:
+        project_id = "trial01"
 
     with connect() as con:
-        project_id = get_or_create_project(con, project_name)
-        bulk_ingest_from_dfs(con, project_id, df, df_results)   # ← persists include+maybe (+ rationale)
+        # IMPORTANT: we assume project already exists (id-only flow)
+        # If you need to ensure it exists, do it OUTSIDE this function.
+        bulk_ingest_from_dfs(con, project_id, df, df_results)
         con.commit()
-        included = list_included(con, project_id)  # list[dict] for GUI “Selected”
-        maybes   = list_maybe(con, project_id)     # list[dict] for GUI “Maybe”
+        included = list_included(con, project_id)
+        maybes   = list_maybe(con, project_id)
+
     return project_id, included, maybes, selected_papers, maybe_papers
 
-def literature_review(query:str, project_id:str,  n:int=10):
-    lm = dspy.LM(
-        api_key=OPENAI_KEY,
-        model="gpt-4o-mini",
-        max_tokens=256# or the exact model you're using
-        )
+
+def literature_review(query: str, project_id: int, n: int = 10):
+    lm = dspy.LM(api_key=OPENAI_KEY, model="gpt-4o-mini", max_tokens=256)
     dspy.configure(lm=lm)
 
     keyword_gen = KeywordGeneratorProgram()
     concept_gen = dspy.Predict(ConceptGenerator)
-    screener = Screener()
-    keywords = keyword_gen(query)
-    boolean_keys = keywords["boolean_pubmed"]
-    keywords = keywords["keywords"]
+    screener    = Screener()
 
-    # skip syn now
+    kw = keyword_gen(query)
+    boolean_keys = kw["boolean_pubmed"]  # in case you need it later
+    keywords     = kw["keywords"]
+
     concepts = concept_gen(keywords=keywords).concepts
     concepts = parse_concepts(concepts)
     q = build_pubmed_query_from_concepts(concepts, field="tiab", mesh_hints=None)
-#    q = append_filters(q, english=True, humans=True, year_from=2015)
+    # q = append_filters(q, english=True, humans=True, year_from=2015)
 
     df = articles_fetchers(q, n=n, include_citations=False)
-    decisions=[]
+
+    decisions = []
     for row in tqdm(df.itertuples()):
         title = row.title
-        abstract = row.title
-        decisions.append(screener(question=query, title=title, abstract=abstract))
+        # FIX: previously was `abstract = row.title`
+        abstract = getattr(row, "abstract", "") or ""
+        res = screener(question=query, title=title, abstract=abstract)
 
-    project_id, included, maybes, selected, maybe = run_selection_and_save(df, decisions, project_id)
+        # Normalize to the expected keys; adjust if your Screener differs
+        if isinstance(res, dict):
+            decision  = res.get("decision")
+            score     = res.get("score")
+            rationale = res.get("rationale")
+        else:
+            decision  = getattr(res, "decision", None)
+            score     = getattr(res, "score", None)
+            rationale = getattr(res, "rationale", None)
 
+        if decision is None:
+            decision = "maybe"
+        if score is None:
+            score = 50
 
+        decisions.append({"decision": decision, "score": score, "rationale": rationale})
+    return run_selection_and_save(df, decisions, project_id)
+
+def rag_answer():
+    pass
 if __name__ == "__main__":
 
     parser = ArgumentParser()

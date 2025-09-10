@@ -1,12 +1,14 @@
+# webapp/db.py
 import sqlite3
 from contextlib import contextmanager
 import os
 
 try:
     import config
-    DB_PATH = str(getattr(config, "DB_PATH"))
+    DB_PATH = str(config.DB_PATH)  # <— use your config DB_PATH
 except Exception:
     DB_PATH = "data/review.db"
+
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 CHAT_SCHEMA = """
@@ -29,13 +31,15 @@ CREATE TABLE IF NOT EXISTS messages (
 
 @contextmanager
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=30000;")
+    conn.execute("PRAGMA journal_mode=WAL;")
     try:
         yield conn
     finally:
         conn.close()
-
 def init_db():
     with get_db() as db:
         db.executescript(CHAT_SCHEMA)
