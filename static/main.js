@@ -50,7 +50,7 @@ async function sendMessage() {
       conversation_id: conversationId,
       text,
       modality: mod,
-      project_id: pid || null
+      project_id: pid || ""
     })
   });
   const data = await res.json();

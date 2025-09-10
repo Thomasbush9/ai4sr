@@ -3,6 +3,7 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime
 from .db import get_db
 from ai4sr.agents.orchestrator import literature_review, rag_answer
+from ai4sr.db.repository import get_or_create_project
 
 api_bp = Blueprint("api", __name__)
 
@@ -23,9 +24,28 @@ def message():
     conv_id   = int(data["conversation_id"])
     text      = (data.get("text") or "").strip()
     modality  = (data.get("modality") or "").strip()  # "literature" | "rag"
-    project_id = data.get("project_id")
-    if isinstance(project_id, str) and project_id.isdigit():
-        project_id = int(project_id)
+    project_name = data.get("project_id")  # Get the raw value first
+    
+    # Debug: print what we received
+    print(f"DEBUG: Received project_id: {repr(project_name)}")
+    
+    # Ensure project_name is not None or empty, default to "default"
+    if not project_name or (isinstance(project_name, str) and project_name.strip() == ""):
+        project_name = "default"
+    
+    print(f"DEBUG: Final project_name: {repr(project_name)}")
+    
+    # Convert to int if it's a numeric string, otherwise treat as name
+    if isinstance(project_name, str) and project_name.isdigit():
+        project_id = int(project_name)
+        print(f"DEBUG: Using numeric project_id: {project_id}")
+    else:
+        # Create or get project by name
+        print(f"DEBUG: Creating/getting project with name: {repr(project_name)}")
+        with get_db() as db:
+            project_id = get_or_create_project(db, project_name)
+            db.commit()
+        print(f"DEBUG: Got project_id: {project_id}")
 
     if not text:
         return jsonify({"reply": "Please enter a query."})

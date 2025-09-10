@@ -34,9 +34,6 @@ def run_selection_and_save(
 
     selected_papers = df[df_results["decision"] == "include"]
     maybe_papers    = df[df_results["decision"] == "maybe"]
-    if not project_id:
-        project_id = "trial01"
-
     with connect() as con:
         # IMPORTANT: we assume project already exists (id-only flow)
         # If you need to ensure it exists, do it OUTSIDE this function.
@@ -126,15 +123,19 @@ if __name__ == "__main__":
     q = build_pubmed_query_from_concepts(concepts, field="tiab", mesh_hints=None)
 #    q = append_filters(q, english=True, humans=True, year_from=2015)
 
-    df = articles_fetchers(q, n=n, include_citations=False)
-    decisions=[]
-    for row in tqdm(df.itertuples()):
-        title = row.title
-        abstract = row.title
-        decisions.append(screener(question=query, title=title, abstract=abstract))
+    # df = articles_fetchers(q, n=n, include_citations=False)
+    # decisions=[]
+    # for row in tqdm(df.itertuples()):
+    #     title = row.title
+    #     abstract = row.title
+    #     decisions.append(screener(question=query, title=title, abstract=abstract))
 
-    project_id, included, maybes, selected, maybe = run_selection_and_save(df, decisions, "trial01")
-    print(project_id, len(included), len(maybes))
+    # # Create or get project for command line usage
+    # with connect() as con:
+    #     project_id = get_or_create_project(con, "trial01")
+    #     con.commit()
+    # project_id, included, maybes, selected, maybe = run_selection_and_save(df, decisions, project_id)
+    # print(project_id, len(included), len(maybes))
     # pass the result papers to the second screener
 
 
