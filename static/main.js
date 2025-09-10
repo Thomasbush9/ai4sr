@@ -32,6 +32,7 @@ function addPaperTable(papers) {
               <th>Authors</th>
               <th>Year</th>
               <th>Abstract</th>
+              <th>Rationale</th>
               <th>DOI</th>
               <th>Links</th>
             </tr>
@@ -44,6 +45,7 @@ function addPaperTable(papers) {
     const authors = escapeHtml(paper.authors || "");
     const year = paper.year || "";
     const abstract = escapeHtml(paper.abstract || "");
+    const rationale = escapeHtml(paper.rationale || "");
     const doi = escapeHtml(paper.doi || "");
     const venue = escapeHtml(paper.venue || "");
     
@@ -64,8 +66,9 @@ function addPaperTable(papers) {
     
     const linksHTML = links.length > 0 ? links.join(" ") : "—";
     
-    // Truncate abstract for display
+    // Truncate abstract and rationale for display
     const shortAbstract = abstract.length > 200 ? abstract.substring(0, 200) + "..." : abstract;
+    const shortRationale = rationale.length > 150 ? rationale.substring(0, 150) + "..." : rationale;
     
     tableHTML += `
       <tr>
@@ -79,6 +82,11 @@ function addPaperTable(papers) {
           <div class="abstract-short">${shortAbstract}</div>
           ${abstract.length > 200 ? `<button class="expand-btn" onclick="toggleAbstract(this)">Show more</button>` : ""}
           <div class="abstract-full" style="display: none;">${abstract}</div>
+        </td>
+        <td class="rationale-cell">
+          <div class="rationale-short">${shortRationale}</div>
+          ${rationale.length > 150 ? `<button class="expand-btn" onclick="toggleRationale(this)">Show more</button>` : ""}
+          <div class="rationale-full" style="display: none;">${rationale}</div>
         </td>
         <td class="doi-cell">${doi}</td>
         <td class="links-cell">${linksHTML}</td>
@@ -114,16 +122,66 @@ function toggleAbstract(btn) {
   }
 }
 
+function toggleRationale(btn) {
+  const row = btn.closest('tr');
+  const shortRationale = row.querySelector('.rationale-short');
+  const fullRationale = row.querySelector('.rationale-full');
+  
+  if (fullRationale.style.display === 'none') {
+    shortRationale.style.display = 'none';
+    fullRationale.style.display = 'block';
+    btn.textContent = 'Show less';
+  } else {
+    shortRationale.style.display = 'block';
+    fullRationale.style.display = 'none';
+    btn.textContent = 'Show more';
+  }
+}
+
 function showLoadingIndicator() {
   const loadingEl = document.createElement("div");
   loadingEl.className = "loading-indicator show";
   loadingEl.innerHTML = `
     <div class="loading-spinner"></div>
-    <span>Running literature review... This may take a moment.</span>
+    <span id="loading-text">Starting literature review...</span>
   `;
   chat.appendChild(loadingEl);
   chat.scrollTop = chat.scrollHeight;
   return loadingEl;
+}
+
+function updateLoadingMessage(loadingEl, message) {
+  const textEl = loadingEl.querySelector('#loading-text');
+  if (textEl) {
+    textEl.textContent = message;
+  }
+}
+
+function startProgressUpdates(loadingEl) {
+  const stages = [
+    "Starting literature review...",
+    "Expanding query with keywords...",
+    "Generating search concepts...",
+    "Building PubMed query...",
+    "Fetching papers from PubMed...",
+    "Stage 1: Basic screening...",
+    "Stage 2: PICO analysis with rationale...",
+    "Saving papers to database...",
+    "Finalizing results..."
+  ];
+  
+  let currentStage = 0;
+  
+  // Update immediately
+  updateLoadingMessage(loadingEl, stages[currentStage]);
+  
+  // Update every 3-5 seconds
+  const interval = setInterval(() => {
+    currentStage = (currentStage + 1) % stages.length;
+    updateLoadingMessage(loadingEl, stages[currentStage]);
+  }, 4000); // Update every 4 seconds
+  
+  return interval;
 }
 
 function hideLoadingIndicator(loadingEl) {
@@ -160,8 +218,10 @@ async function sendMessage() {
 
   // Show loading indicator for literature mode
   let loadingIndicator = null;
+  let progressInterval = null;
   if (mod === "literature") {
     loadingIndicator = showLoadingIndicator();
+    progressInterval = startProgressUpdates(loadingIndicator);
   }
 
   try {
@@ -180,6 +240,9 @@ async function sendMessage() {
     
     // Hide loading indicator
     if (loadingIndicator) {
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
       hideLoadingIndicator(loadingIndicator);
     }
     
@@ -194,6 +257,9 @@ async function sendMessage() {
   } catch (error) {
     // Hide loading indicator on error
     if (loadingIndicator) {
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
       hideLoadingIndicator(loadingIndicator);
     }
     addMessage("assistant", `Error: ${error.message}`);

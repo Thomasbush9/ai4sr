@@ -43,38 +43,37 @@ class Screener(dspy.Module):
 #---------- Screener with CoT:
 class CoTScreenerSig(dspy.Signature):
     """
-    Read the paper's *title* and *abstract* and decide whether to INCLUDE it in the
-    systematic review. Think step-by-step with the PICO framework in mind.
-    Use PICO
-    --------
-    - P (Population): Who is studied?
-    - I (Intervention/Index): What is done/exposed?
-    - C (Comparator): Compared to what?
-    - O (Outcomes): What is measured?
-    Decision
-    --------
-    Return one of: "include", "exclude", or "uncertain"."""
+    Perform detailed PICO analysis of this paper for systematic review inclusion.
+    
+    PICO Framework Analysis:
+    - P (Population): Who is studied? Age, gender, condition, etc.
+    - I (Intervention/Index): What is the main intervention or exposure?
+    - C (Comparator): What is it compared to? Control group, alternative treatment?
+    - O (Outcomes): What outcomes are measured? Primary and secondary endpoints?
+    
+    Based on this analysis, provide a final decision and detailed rationale.
+    """
     research_question: str = dspy.InputField()
     title: str = dspy.InputField()
     abstract: str = dspy.InputField()
-    example: Optional[str] = dspy.InputField()
 
     #outputs
     decision: Literal["include", "maybe", "exclude"] = dspy.OutputField()
+    rationale: str = dspy.OutputField(desc="Detailed PICO analysis and reasoning for the decision")
 
 class CoTScreener(dspy.Module):
     def __init__(self, callbacks=None):
         self.predict = dspy.ChainOfThought(CoTScreenerSig)
-    def forward(self, question:str, title:str,
-                abstract:str, example:str=None)->str:
-        if not example:
-            example = ""
-        decision = self.predict(
+    def forward(self, question:str, title:str, abstract:str)->Dict[str, Any]:
+        result = self.predict(
                 research_question=question,
                 title=title,
-                abstract=abstract,
-                example=example)
-        return decision.decision
+                abstract=abstract)
+        return {
+            "decision": result.decision,
+            "rationale": result.rationale,
+            "score": 85  # Higher score for CoT analysis
+        }
 
 if __name__ == "__main__":
     load_dotenv()

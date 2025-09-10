@@ -20,21 +20,23 @@ button:disabled { opacity:.6; cursor:not-allowed; }
 .loading-indicator {
   display: none;
   align-items: center;
-  gap: 8px;
-  padding: 12px;
-  background: #f0f8ff;
+  gap: 12px;
+  padding: 16px;
+  background: linear-gradient(135deg, #f0f8ff 0%, #e3f2fd 100%);
   border: 1px solid #b3d9ff;
-  border-radius: 8px;
-  margin: 8px 0;
+  border-radius: 12px;
+  margin: 12px 0;
   font-size: 14px;
   color: #0066cc;
+  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.1);
+  transition: all 0.3s ease;
 }
 
 .loading-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid #e3f2fd;
-  border-top: 2px solid #1976d2;
+  width: 20px;
+  height: 20px;
+  border: 3px solid #e3f2fd;
+  border-top: 3px solid #1976d2;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -46,6 +48,23 @@ button:disabled { opacity:.6; cursor:not-allowed; }
 
 .loading-indicator.show {
   display: flex;
+  animation: fadeInUp 0.3s ease;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#loading-text {
+  font-weight: 500;
+  transition: opacity 0.3s ease;
 }
 
 /* Paper Table Styles */
@@ -137,6 +156,23 @@ button:disabled { opacity:.6; cursor:not-allowed; }
 
 .abstract-full {
   color: #555;
+}
+
+.rationale-cell {
+  min-width: 200px;
+  max-width: 350px;
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.rationale-short {
+  color: #666;
+  font-style: italic;
+}
+
+.rationale-full {
+  color: #666;
+  font-style: italic;
 }
 
 .expand-btn {
@@ -235,6 +271,7 @@ button:disabled { opacity:.6; cursor:not-allowed; }
   
   .title-cell { min-width: 150px; max-width: 200px; }
   .abstract-cell { min-width: 200px; max-width: 250px; }
+  .rationale-cell { min-width: 150px; max-width: 200px; }
   .authors-cell { min-width: 100px; max-width: 150px; }
 }
 

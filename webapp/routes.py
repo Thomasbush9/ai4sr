@@ -90,7 +90,7 @@ def message():
                 ).fetchone()
                 newest = db.execute(
                     """
-                    SELECT id, title, abstract, authors, year, venue, doi, doi_url, pubmed_url, url, pdf_path, status, score
+                    SELECT id, title, abstract, authors, year, venue, doi, doi_url, pubmed_url, url, pdf_path, status, score, rationale
                     FROM papers
                     WHERE project_id = ?
                     ORDER BY added_at DESC
@@ -120,7 +120,8 @@ def message():
                             "url": r["url"] or "",
                             "pdf_path": r["pdf_path"] or "",
                             "status": r["status"],
-                            "score": r["score"]
+                            "score": r["score"],
+                            "rationale": r["rationale"] or ""
                         }
                         response_data["papers"].append(paper)
                 

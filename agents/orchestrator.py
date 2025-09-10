@@ -12,7 +12,7 @@ import pandas as pd
 from ai4sr.agents.keyword_exp import KeywordGeneratorProgram, SynonymGeneratorProgram, ConceptGenerator
 from ai4sr.agents.paper_finder import fetch_from_keywords, articles_fetchers, append_filters
 from ai4sr.agents.utils import parse_concepts
-from ai4sr.agents.screening import Screener
+from ai4sr.agents.screening import Screener, CoTScreener
 from ai4sr.db.connection import connect
 from ai4sr.db.repository import (
     get_or_create_project, bulk_ingest_from_dfs,
@@ -63,7 +63,8 @@ def literature_review(query: str, project_id: int, n: int = 10):
     print("DEBUG: Generating keywords...")
     keyword_gen = KeywordGeneratorProgram()
     concept_gen = dspy.Predict(ConceptGenerator)
-    screener    = Screener()
+    basic_screener = Screener()  # First stage: basic screening
+    cot_screener = CoTScreener()  # Second stage: detailed PICO analysis
 
     kw = keyword_gen(query)
     boolean_keys = kw["boolean_pubmed"]  # in case you need it later
@@ -83,50 +84,90 @@ def literature_review(query: str, project_id: int, n: int = 10):
     df = articles_fetchers(q, n=n, include_citations=False)
     print(f"DEBUG: Fetched {len(df)} articles")
 
-    decisions = []
-    for row in tqdm(df.itertuples()):
+    # STAGE 1: Basic screening to filter out obviously irrelevant papers
+    print("DEBUG: Starting Stage 1 - Basic screening...")
+    basic_decisions = []
+    for row in tqdm(df.itertuples(), desc="Basic screening"):
         title = row.title
-        # FIX: previously was `abstract = row.title`
         abstract = getattr(row, "abstract", "") or ""
         
         try:
-            res = screener(question=query, title=title, abstract=abstract)
-            print(f"DEBUG: Screener result: {res}")
-            print(f"DEBUG: Screener result type: {type(res)}")
+            res = basic_screener(question=query, title=title, abstract=abstract)
+            print(f"DEBUG: Basic screener result: {res}")
             
             # Ensure the result has the expected keys
             if not isinstance(res, dict):
-                print(f"DEBUG: Screener returned non-dict: {res}")
                 res = {"decision": "maybe", "score": 50}
             elif "decision" not in res:
-                print(f"DEBUG: Screener result missing 'decision' key: {res}")
                 res["decision"] = "maybe"
             if "score" not in res:
-                print(f"DEBUG: Screener result missing 'score' key: {res}")
                 res["score"] = 50
                 
         except Exception as e:
-            print(f"DEBUG: Screener error: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"DEBUG: Basic screener error: {e}")
             res = {"decision": "maybe", "score": 50}
 
-        # Normalize to the expected keys; adjust if your Screener differs
-        if isinstance(res, dict):
-            decision  = res.get("decision")
-            score     = res.get("score")
-            rationale = res.get("rationale")
+        decision = res.get("decision", "maybe")
+        score = res.get("score", 50)
+        
+        basic_decisions.append({
+            "decision": decision, 
+            "score": score, 
+            "rationale": "Basic screening - no detailed analysis"
+        })
+    
+    # Filter papers that passed basic screening (include or maybe)
+    passed_papers = []
+    passed_decisions = []
+    for i, (row, decision) in enumerate(zip(df.itertuples(), basic_decisions)):
+        if decision["decision"] in ["include", "maybe"]:
+            passed_papers.append(row)
+            passed_decisions.append(decision)
+    
+    print(f"DEBUG: Stage 1 complete. {len(passed_papers)} papers passed basic screening out of {len(df)}")
+    
+    # STAGE 2: Detailed PICO analysis with CoT screener for passed papers
+    print("DEBUG: Starting Stage 2 - Detailed PICO analysis...")
+    final_decisions = []
+    for i, (row, basic_decision) in enumerate(tqdm(zip(passed_papers, passed_decisions), desc="PICO analysis")):
+        title = row.title
+        abstract = getattr(row, "abstract", "") or ""
+        
+        try:
+            res = cot_screener(question=query, title=title, abstract=abstract)
+            print(f"DEBUG: CoT screener result: {res}")
+            
+            # Ensure the result has the expected keys
+            if not isinstance(res, dict):
+                res = {"decision": "maybe", "score": 75, "rationale": "CoT analysis failed"}
+            elif "decision" not in res:
+                res["decision"] = "maybe"
+            if "score" not in res:
+                res["score"] = 75
+            if "rationale" not in res:
+                res["rationale"] = "No rationale provided"
+                
+        except Exception as e:
+            print(f"DEBUG: CoT screener error: {e}")
+            res = {"decision": "maybe", "score": 75, "rationale": f"CoT analysis error: {str(e)}"}
+
+        final_decisions.append({
+            "decision": res.get("decision", "maybe"),
+            "score": res.get("score", 75),
+            "rationale": res.get("rationale", "No rationale provided")
+        })
+    
+    # Create final decisions list that matches the original df order
+    decisions = []
+    passed_idx = 0
+    for i, basic_decision in enumerate(basic_decisions):
+        if basic_decision["decision"] in ["include", "maybe"]:
+            # This paper went through CoT analysis
+            decisions.append(final_decisions[passed_idx])
+            passed_idx += 1
         else:
-            decision  = getattr(res, "decision", None)
-            score     = getattr(res, "score", None)
-            rationale = getattr(res, "rationale", None)
-
-        if decision is None:
-            decision = "maybe"
-        if score is None:
-            score = 50
-
-        decisions.append({"decision": decision, "score": score, "rationale": rationale})
+            # This paper was excluded in basic screening
+            decisions.append(basic_decision)
     
     print(f"DEBUG: Completed screening, {len(decisions)} decisions made")
     print("DEBUG: Calling run_selection_and_save...")
