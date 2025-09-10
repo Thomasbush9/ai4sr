@@ -10,20 +10,56 @@ function escapeHtml(str) {
     "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
   }[s]));
 }
+
+function formatMessage(text) {
+  // Simple markdown-like formatting
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/• (.*?)(?=\n|$)/g, '<div class="bullet-point">• $1</div>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>')
+    .replace(/^/, '<p>')
+    .replace(/$/, '</p>');
+}
 function addMessage(role, text) {
   const el = document.createElement("div");
   el.className = `msg ${role}`;
-  el.innerHTML = `<div class="bubble">${escapeHtml(text)}</div>`;
+  
+  const timestamp = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  
+  el.innerHTML = `
+    <div class="bubble">
+      <div class="message-content">${formatMessage(escapeHtml(text))}</div>
+      <div class="message-time">${timestamp}</div>
+    </div>
+  `;
+  
   chat.appendChild(el);
   chat.scrollTop = chat.scrollHeight;
+  
+  // Add fade-in animation
+  el.style.opacity = '0';
+  el.style.transform = 'translateY(10px)';
+  setTimeout(() => {
+    el.style.transition = 'all 0.3s ease';
+    el.style.opacity = '1';
+    el.style.transform = 'translateY(0)';
+  }, 10);
 }
 
 function addPaperTable(papers) {
   const el = document.createElement("div");
   el.className = "msg assistant";
   
+  const timestamp = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  
   let tableHTML = `
     <div class="bubble">
+      <div class="papers-header">
+        <h3>📄 Research Papers Found</h3>
+        <span class="papers-count">${papers.length} papers</span>
+      </div>
       <div class="papers-table-container">
         <table class="papers-table">
           <thead>
@@ -98,12 +134,22 @@ function addPaperTable(papers) {
           </tbody>
         </table>
       </div>
+      <div class="message-time">${timestamp}</div>
     </div>
   `;
   
   el.innerHTML = tableHTML;
   chat.appendChild(el);
   chat.scrollTop = chat.scrollHeight;
+  
+  // Add fade-in animation
+  el.style.opacity = '0';
+  el.style.transform = 'translateY(10px)';
+  setTimeout(() => {
+    el.style.transition = 'all 0.3s ease';
+    el.style.opacity = '1';
+    el.style.transform = 'translateY(0)';
+  }, 10);
 }
 
 function toggleAbstract(btn) {
@@ -199,9 +245,14 @@ async function startConversation() {
   });
   const data = await res.json();
   conversationId = data.conversation_id;
-  convMeta.textContent = `Conversation #${conversationId} · Mode: ${mod}`;
+  convMeta.textContent = `Session #${conversationId} · ${mod === 'literature' ? 'Literature Review' : 'RAG Chat'}`;
   chat.innerHTML = "";
-  addMessage("assistant", `Mode set to "${mod}". How can I help?`);
+  
+  if (mod === 'literature') {
+    addMessage("assistant", `🔍 **Literature Review Mode Active**\n\nI can help you:\n• Find relevant papers for your research topic\n• Analyze and summarize research findings\n• Generate comprehensive literature reviews\n• Screen papers based on your criteria\n\nWhat research question or topic would you like me to explore?`);
+  } else {
+    addMessage("assistant", `💬 **RAG Chat Mode Active**\n\nI can help you:\n• Answer questions about your existing documents\n• Search through your uploaded papers\n• Provide insights from your research collection\n\nWhat would you like to know about your documents?`);
+  }
 }
 
 async function sendMessage() {
@@ -273,6 +324,20 @@ document.querySelectorAll('input[name="mod"]').forEach(r => {
   r.addEventListener("change", startConversation);
 });
 sendBtn.addEventListener("click", sendMessage);
-input.addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
+input.addEventListener("keydown", (e) => { 
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+// Add input focus enhancement
+input.addEventListener("focus", () => {
+  input.parentElement.classList.add("focused");
+});
+
+input.addEventListener("blur", () => {
+  input.parentElement.classList.remove("focused");
+});
 
 startConversation();
