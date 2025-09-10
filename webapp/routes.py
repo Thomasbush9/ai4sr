@@ -25,9 +25,13 @@ def message():
     text      = (data.get("text") or "").strip()
     modality  = (data.get("modality") or "").strip()  # "literature" | "rag"
     project_name = data.get("project_id")  # Get the raw value first
+    paper_limit = int(data.get("paper_limit", 10))  # Default to 10 if not provided
+    # Validate paper limit
+    paper_limit = max(1, min(50, paper_limit))  # Clamp between 1 and 50
     
     # Debug: print what we received
     print(f"DEBUG: Received project_id: {repr(project_name)}")
+    print(f"DEBUG: Received paper_limit: {paper_limit}")
     
     # Ensure project_name is not None or empty, default to "default"
     if not project_name or (isinstance(project_name, str) and project_name.strip() == ""):
@@ -61,42 +65,81 @@ def message():
         db.commit()
 
     if modality == "literature":
+        literature_success = False
         try:
             # Heavy work OUTSIDE DB context (to avoid locks)
             pid, included, maybes, selected_df, maybe_df = literature_review(
                 query=text,
                 project_id=project_id,
-                n=10
+                n=paper_limit
             )
             project_id = pid  # ensure we carry the resolved id
             reply_core = "Literature review completed."
+            literature_success = True
         except Exception as e:
             reply_core = f"Error during literature review: {e}"
+            print(f"DEBUG: Literature review failed: {e}")
 
         # Summarize & save assistant message
         with get_db() as db:
-            (after_count,) = db.execute(
-                "SELECT COUNT(*) FROM papers WHERE project_id = ?",
-                (project_id,)
-            ).fetchone()
-            newest = db.execute(
-                """
-                SELECT title, year FROM papers
-                WHERE project_id = ?
-                ORDER BY added_at DESC
-                LIMIT 3
-                """,
-                (project_id,)
-            ).fetchall()
+            if literature_success:
+                # Only show papers if literature review was successful
+                (after_count,) = db.execute(
+                    "SELECT COUNT(*) FROM papers WHERE project_id = ?",
+                    (project_id,)
+                ).fetchone()
+                newest = db.execute(
+                    """
+                    SELECT id, title, abstract, authors, year, venue, doi, doi_url, pubmed_url, url, pdf_path, status, score
+                    FROM papers
+                    WHERE project_id = ?
+                    ORDER BY added_at DESC
+                    LIMIT 10
+                    """,
+                    (project_id,)
+                ).fetchall()
 
-            lines = [f"{reply_core} Project #{project_id} now has {after_count} papers."]
-            if newest:
-                lines.append("Newest entries:")
-                for r in newest:
-                    title = r["title"] or "Untitled"
-                    yr = f" ({r['year']})" if r["year"] else ""
-                    lines.append(f"• {title}{yr}")
-            reply = "\n".join(lines)
+                # Create structured response
+                response_data = {
+                    "message": f"{reply_core} Project #{project_id} now has {after_count} papers.",
+                    "papers": []
+                }
+                
+                if newest:
+                    for r in newest:
+                        paper = {
+                            "id": r["id"],
+                            "title": r["title"] or "Untitled",
+                            "abstract": r["abstract"] or "",
+                            "authors": r["authors"] or "",
+                            "year": r["year"],
+                            "venue": r["venue"] or "",
+                            "doi": r["doi"] or "",
+                            "doi_url": r["doi_url"] or "",
+                            "pubmed_url": r["pubmed_url"] or "",
+                            "url": r["url"] or "",
+                            "pdf_path": r["pdf_path"] or "",
+                            "status": r["status"],
+                            "score": r["score"]
+                        }
+                        response_data["papers"].append(paper)
+                
+                # For backward compatibility, also create a text reply
+                lines = [response_data["message"]]
+                if newest:
+                    lines.append("Newest entries:")
+                    for r in newest:
+                        title = r["title"] or "Untitled"
+                        yr = f" ({r['year']})" if r["year"] else ""
+                        lines.append(f"• {title}{yr}")
+                reply = "\n".join(lines)
+            else:
+                # If literature review failed, just show error message
+                response_data = {
+                    "message": reply_core,
+                    "papers": []
+                }
+                reply = reply_core
 
             db.execute(
                 "INSERT INTO messages (conversation_id, role, text, created_at) VALUES (?, 'assistant', ?, ?)",
@@ -112,6 +155,11 @@ def message():
                 (conv_id, reply, datetime.utcnow().isoformat()),
             )
             db.commit()
+            response_data = {"message": reply, "papers": []}
 
-    return jsonify({"reply": reply})
+    # Return structured response for literature mode, simple reply for RAG mode
+    if modality == "literature":
+        return jsonify(response_data)
+    else:
+        return jsonify({"reply": reply})
 
