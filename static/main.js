@@ -4,6 +4,8 @@ const chat = document.getElementById("chat");
 const input = document.getElementById("input");
 const sendBtn = document.getElementById("send");
 const convMeta = document.getElementById("conv-meta");
+const exportBtn = document.getElementById("export-chat");
+const helpBtn = document.getElementById("help-shortcuts");
 
 function escapeHtml(str) {
   return str.replace(/[&<>"']/g, s => ({
@@ -22,14 +24,24 @@ function formatMessage(text) {
     .replace(/^/, '<p>')
     .replace(/$/, '</p>');
 }
-function addMessage(role, text) {
+function addMessage(role, text, mode = null) {
   const el = document.createElement("div");
   el.className = `msg ${role}`;
   
   const timestamp = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  const currentMode = mode || document.querySelector('input[name="mod"]:checked').value;
+  
+  // Add mode indicator for assistant messages
+  let modeIndicator = '';
+  if (role === 'assistant' && currentMode) {
+    const modeIcon = currentMode === 'literature' ? '🔍' : '💬';
+    const modeName = currentMode === 'literature' ? 'Literature Review' : 'RAG Chat';
+    modeIndicator = `<div class="mode-indicator">${modeIcon} ${modeName}</div>`;
+  }
   
   el.innerHTML = `
     <div class="bubble">
+      ${modeIndicator}
       <div class="message-content">${formatMessage(escapeHtml(text))}</div>
       <div class="message-time">${timestamp}</div>
     </div>
@@ -53,9 +65,13 @@ function addPaperTable(papers) {
   el.className = "msg assistant";
   
   const timestamp = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  const currentMode = document.querySelector('input[name="mod"]:checked').value;
+  const modeIcon = currentMode === 'literature' ? '🔍' : '💬';
+  const modeName = currentMode === 'literature' ? 'Literature Review' : 'RAG Chat';
   
   let tableHTML = `
     <div class="bubble">
+      <div class="mode-indicator">${modeIcon} ${modeName}</div>
       <div class="papers-header">
         <h3>📄 Research Papers Found</h3>
         <span class="papers-count">${papers.length} papers</span>
@@ -236,22 +252,124 @@ function hideLoadingIndicator(loadingEl) {
   }
 }
 
+function showTypingIndicator() {
+  const el = document.createElement("div");
+  el.className = "msg assistant typing-indicator";
+  el.innerHTML = `
+    <div class="bubble">
+      <div class="mode-indicator">💬 ${document.querySelector('input[name="mod"]:checked').value === 'literature' ? 'Literature Review' : 'RAG Chat'}</div>
+      <div class="typing-content">
+        <div class="typing-dots">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <span class="typing-text">Assistant is typing...</span>
+      </div>
+    </div>
+  `;
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
+  return el;
+}
+
+function hideTypingIndicator(typingEl) {
+  if (typingEl && typingEl.parentNode) {
+    typingEl.parentNode.removeChild(typingEl);
+  }
+}
+
+function exportChatHistory() {
+  const messages = Array.from(chat.querySelectorAll('.msg')).map(msg => {
+    const role = msg.classList.contains('user') ? 'User' : 'Assistant';
+    const content = msg.querySelector('.message-content');
+    const time = msg.querySelector('.message-time');
+    const modeIndicator = msg.querySelector('.mode-indicator');
+    
+    let text = content ? content.textContent.trim() : '';
+    if (modeIndicator) {
+      text = `[${modeIndicator.textContent}] ${text}`;
+    }
+    
+    return `${role} (${time ? time.textContent : 'Unknown time'}): ${text}`;
+  }).join('\n\n');
+  
+  const blob = new Blob([`AI4SR Literature Review Chat Export\nSession #${conversationId || 'Unknown'}\nExported: ${new Date().toLocaleString()}\n\n${messages}`], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ai4sr-chat-${conversationId || 'export'}-${new Date().toISOString().split('T')[0]}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function showKeyboardShortcuts() {
+  const shortcuts = [
+    { key: 'Enter', description: 'Send message' },
+    { key: 'Ctrl/Cmd + Enter', description: 'Send message (alternative)' },
+    { key: 'Ctrl/Cmd + E', description: 'Export chat history' },
+    { key: 'Ctrl/Cmd + /', description: 'Focus input field' }
+  ];
+  
+  const shortcutsHTML = shortcuts.map(s => 
+    `<div class="shortcut-item">
+      <kbd class="shortcut-key">${s.key}</kbd>
+      <span class="shortcut-desc">${s.description}</span>
+    </div>`
+  ).join('');
+  
+  addMessage("assistant", `⌨️ **Keyboard Shortcuts**\n\n${shortcutsHTML}\n\n*Tip: You can switch between Literature Review and RAG Chat modes anytime - your conversation history will be preserved!*`);
+}
+
+// Keyboard shortcuts
+function handleKeyboardShortcuts(e) {
+  // Ctrl/Cmd + Enter to send message
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    sendMessage();
+  }
+  
+  // Ctrl/Cmd + E to export chat
+  if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+    e.preventDefault();
+    exportChatHistory();
+  }
+  
+  // Ctrl/Cmd + / to focus input
+  if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+    e.preventDefault();
+    input.focus();
+  }
+}
+
 async function startConversation() {
   const mod = document.querySelector('input[name="mod"]:checked').value;
-  const res = await fetch("/api/start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ modality: mod })
-  });
-  const data = await res.json();
-  conversationId = data.conversation_id;
-  convMeta.textContent = `Session #${conversationId} · ${mod === 'literature' ? 'Literature Review' : 'RAG Chat'}`;
-  chat.innerHTML = "";
   
-  if (mod === 'literature') {
-    addMessage("assistant", `🔍 **Literature Review Mode Active**\n\nI can help you:\n• Find relevant papers for your research topic\n• Analyze and summarize research findings\n• Generate comprehensive literature reviews\n• Screen papers based on your criteria\n\nWhat research question or topic would you like me to explore?`);
+  // Only start new conversation if we don't have one
+  if (!conversationId) {
+    const res = await fetch("/api/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ modality: mod })
+    });
+    const data = await res.json();
+    conversationId = data.conversation_id;
+  }
+  
+  convMeta.textContent = `Session #${conversationId} · ${mod === 'literature' ? 'Literature Review' : 'RAG Chat'}`;
+  
+  // Only show welcome message if chat is empty
+  if (chat.children.length === 0) {
+    if (mod === 'literature') {
+      addMessage("assistant", `🔍 **Literature Review Mode Active**\n\nI can help you:\n• Find relevant papers for your research topic\n• Analyze and summarize research findings\n• Generate comprehensive literature reviews\n• Screen papers based on your criteria\n\nWhat research question or topic would you like me to explore?`, mod);
+    } else {
+      addMessage("assistant", `💬 **RAG Chat Mode Active**\n\nI can help you:\n• Answer questions about your existing documents\n• Search through your uploaded papers\n• Provide insights from your research collection\n\nWhat would you like to know about your documents?`, mod);
+    }
   } else {
-    addMessage("assistant", `💬 **RAG Chat Mode Active**\n\nI can help you:\n• Answer questions about your existing documents\n• Search through your uploaded papers\n• Provide insights from your research collection\n\nWhat would you like to know about your documents?`);
+    // Add mode switch notification
+    addMessage("assistant", `Mode switched to **${mod === 'literature' ? 'Literature Review' : 'RAG Chat'}**. How can I help you?`, mod);
   }
 }
 
@@ -267,12 +385,16 @@ async function sendMessage() {
   sendBtn.disabled = true;
   input.value = "";
 
-  // Show loading indicator for literature mode
+  // Show appropriate indicator based on mode
   let loadingIndicator = null;
+  let typingIndicator = null;
   let progressInterval = null;
+  
   if (mod === "literature") {
     loadingIndicator = showLoadingIndicator();
     progressInterval = startProgressUpdates(loadingIndicator);
+  } else {
+    typingIndicator = showTypingIndicator();
   }
 
   try {
@@ -289,12 +411,15 @@ async function sendMessage() {
     });
     const data = await res.json();
     
-    // Hide loading indicator
+    // Hide indicators
     if (loadingIndicator) {
       if (progressInterval) {
         clearInterval(progressInterval);
       }
       hideLoadingIndicator(loadingIndicator);
+    }
+    if (typingIndicator) {
+      hideTypingIndicator(typingIndicator);
     }
     
     // Handle structured response for literature mode
@@ -306,12 +431,15 @@ async function sendMessage() {
       addMessage("assistant", data.reply || data.message);
     }
   } catch (error) {
-    // Hide loading indicator on error
+    // Hide indicators on error
     if (loadingIndicator) {
       if (progressInterval) {
         clearInterval(progressInterval);
       }
       hideLoadingIndicator(loadingIndicator);
+    }
+    if (typingIndicator) {
+      hideTypingIndicator(typingIndicator);
     }
     addMessage("assistant", `Error: ${error.message}`);
   }
@@ -324,12 +452,18 @@ document.querySelectorAll('input[name="mod"]').forEach(r => {
   r.addEventListener("change", startConversation);
 });
 sendBtn.addEventListener("click", sendMessage);
+exportBtn.addEventListener("click", exportChatHistory);
+helpBtn.addEventListener("click", showKeyboardShortcuts);
+
+// Keyboard event listeners
 input.addEventListener("keydown", (e) => { 
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     sendMessage();
   }
 });
+
+document.addEventListener("keydown", handleKeyboardShortcuts);
 
 // Add input focus enhancement
 input.addEventListener("focus", () => {
