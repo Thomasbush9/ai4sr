@@ -6,10 +6,10 @@ from tqdm import tqdm
 import pandas as pd
 import requests
 import time
-from ai4sr.agents.keyword_exp import KeywordGeneratorProgram
+from .keyword_exp import KeywordGeneratorProgram
 from tabulate import tabulate
 from typing import Iterable, List, Dict, Optional, Union
-from ai4sr.agents.utils import build_pubmed_query_from_keywords, append_filters, build_pubmed_query_from_concepts
+from .utils import build_pubmed_query_from_keywords, append_filters, build_pubmed_query_from_concepts
 # ---- Config ----
 REQUEST_DELAY = 0.1        # polite delay between Crossref calls (seconds)
 

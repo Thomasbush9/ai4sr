@@ -172,8 +172,8 @@ def bulk_ingest_from_dfs(
 # ---------- queries for GUI ----------
 def list_included(con: sqlite3.Connection, project_id: int) -> List[dict]:
     cur = con.execute("""
-        SELECT id, title, authors, year, venue, doi, pmid, pmcid,
-               doi_url, pubmed_url, url, pdf_path, score, rationale, citations_crossref
+        SELECT id, title, abstract, authors, year, venue, doi, pmid, pmcid,
+               doi_url, pubmed_url, url, pdf_path, status, score, rationale, citations_crossref, project_id
           FROM papers
          WHERE project_id = ? AND status = 'include'
       ORDER BY COALESCE(score,0) DESC, year DESC, title
@@ -183,8 +183,8 @@ def list_included(con: sqlite3.Connection, project_id: int) -> List[dict]:
 
 def list_maybe(con: sqlite3.Connection, project_id: int) -> List[dict]:
     cur = con.execute("""
-        SELECT id, title, authors, year, venue, doi, pmid, pmcid,
-               doi_url, pubmed_url, url, pdf_path, score, rationale, citations_crossref
+        SELECT id, title, abstract, authors, year, venue, doi, pmid, pmcid,
+               doi_url, pubmed_url, url, pdf_path, status, score, rationale, citations_crossref, project_id
           FROM papers
          WHERE project_id = ? AND status = 'maybe'
       ORDER BY COALESCE(score,0) DESC, title

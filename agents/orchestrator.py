@@ -1,7 +1,7 @@
 from pathlib import Path
 import os
 from tqdm import tqdm
-from ai4sr.agents.utils import build_pubmed_query_from_concepts, build_pubmed_query_from_keywords
+from .utils import build_pubmed_query_from_concepts, build_pubmed_query_from_keywords
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional, Literal
 from argparse import ArgumentParser
@@ -9,15 +9,16 @@ from argparse import ArgumentParser
 import dspy
 import pandas as pd
 
-from ai4sr.agents.keyword_exp import KeywordGeneratorProgram, SynonymGeneratorProgram, ConceptGenerator
-from ai4sr.agents.paper_finder import fetch_from_keywords, articles_fetchers, append_filters
-from ai4sr.agents.utils import parse_concepts
-from ai4sr.agents.screening import Screener, CoTScreener
-from ai4sr.db.connection import connect
-from ai4sr.db.repository import (
+from .keyword_exp import KeywordGeneratorProgram, SynonymGeneratorProgram, ConceptGenerator
+from .paper_finder import fetch_from_keywords, articles_fetchers, append_filters
+from .utils import parse_concepts
+from .screening import Screener, CoTScreener
+from ..db.connection import connect
+from ..db.repository import (
     get_or_create_project, bulk_ingest_from_dfs,
     list_included, list_maybe
 )
+from .rag_agent import RAGAgent
 load_dotenv()
 OPENAI_KEY= os.getenv("OPENAI_KEY")
 def run_selection_and_save(
@@ -172,11 +173,73 @@ def literature_review(query: str, project_id: int, n: int = 10):
     print(f"DEBUG: Completed screening, {len(decisions)} decisions made")
     print("DEBUG: Calling run_selection_and_save...")
     result = run_selection_and_save(df, decisions, project_id)
+    
+    # Update RAG embeddings with new papers
+    print("DEBUG: Updating RAG embeddings...")
+    try:
+        rag_agent = RAGAgent()
+        # Get the papers that were just added to the database
+        with connect() as con:
+            included_papers = list_included(con, project_id)
+            maybe_papers = list_maybe(con, project_id)
+            all_papers = included_papers + maybe_papers
+        
+        # Convert to the format expected by RAG agent
+        papers_for_rag = []
+        for paper in all_papers:
+            papers_for_rag.append({
+                'id': paper['id'],
+                'title': paper['title'],
+                'abstract': paper['abstract'],
+                'authors': paper['authors'],
+                'year': paper['year'],
+                'venue': paper['venue'],
+                'doi': paper['doi'],
+                'status': paper['status'],
+                'score': paper['score'],
+                'rationale': paper['rationale']
+            })
+        
+        # Add papers to RAG agent
+        rag_agent.add_papers(papers_for_rag, project_id)
+        print("DEBUG: RAG embeddings updated successfully")
+    except Exception as e:
+        print(f"DEBUG: Warning - Failed to update RAG embeddings: {e}")
+    
     print(f"DEBUG: Literature review completed successfully: {result}")
     return result
 
-def rag_answer():
-    pass
+def rag_answer(question: str, project_id: int, db_conn=None, top_k: int = 5) -> str:
+    """
+    Answer a question using RAG on the literature review database.
+    
+    Args:
+        question: The user's question
+        project_id: The project ID to search within
+        db_conn: Database connection (optional, will create if not provided)
+        top_k: Number of most relevant papers to retrieve
+    
+    Returns:
+        Answer string based on retrieved papers
+    """
+    print(f"DEBUG: RAG answering question: '{question}' for project {project_id}")
+    
+    try:
+        # Initialize RAG agent
+        rag_agent = RAGAgent()
+        
+        # Load papers for the specific project only
+        rag_agent._load_papers_from_db(project_id)
+        
+        # Answer the question using RAG
+        answer = rag_agent.forward(question, project_id, top_k)
+        
+        print(f"DEBUG: RAG answer generated successfully")
+        return answer
+        
+    except Exception as e:
+        print(f"DEBUG: RAG error: {e}")
+        return f"I encountered an error while answering your question: {str(e)}. Please make sure you have run a literature review first to populate the database."
 if __name__ == "__main__":
 
     parser = ArgumentParser()

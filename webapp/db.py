@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS papers (
 
 -- FTS (optional)
 CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5(
-  title, abstract, content='',
+  title, abstract,
   tokenize='porter'
 );
 
