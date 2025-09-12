@@ -6,6 +6,7 @@ const sendBtn = document.getElementById("send");
 const convMeta = document.getElementById("conv-meta");
 const exportBtn = document.getElementById("export-chat");
 const helpBtn = document.getElementById("help-shortcuts");
+const themeBtn = document.getElementById("theme-toggle");
 
 function escapeHtml(str) {
   return str.replace(/[&<>"']/g, s => ({
@@ -323,6 +324,36 @@ function showKeyboardShortcuts() {
   addMessage("assistant", `⌨️ **Keyboard Shortcuts**\n\n${shortcutsHTML}\n\n*Tip: You can switch between Literature Review and RAG Chat modes anytime - your conversation history will be preserved!*`);
 }
 
+// Dark Mode Functions
+function initTheme() {
+  const savedTheme = localStorage.getItem('ai4sr-theme') || 'light';
+  setTheme(savedTheme);
+}
+
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('ai4sr-theme', theme);
+  
+  const themeIcon = themeBtn.querySelector('.theme-icon');
+  const themeText = themeBtn.querySelector('.theme-text');
+  
+  if (theme === 'dark') {
+    themeIcon.textContent = '☀️';
+    themeText.textContent = 'Light';
+    themeBtn.title = 'Switch to Light Mode';
+  } else {
+    themeIcon.textContent = '🌙';
+    themeText.textContent = 'Dark';
+    themeBtn.title = 'Switch to Dark Mode';
+  }
+}
+
+function toggleTheme() {
+  const currentTheme = document.documentElement.getAttribute('data-theme');
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  setTheme(newTheme);
+}
+
 // Keyboard shortcuts
 function handleKeyboardShortcuts(e) {
   // Ctrl/Cmd + Enter to send message
@@ -454,6 +485,7 @@ document.querySelectorAll('input[name="mod"]').forEach(r => {
 sendBtn.addEventListener("click", sendMessage);
 exportBtn.addEventListener("click", exportChatHistory);
 helpBtn.addEventListener("click", showKeyboardShortcuts);
+themeBtn.addEventListener("click", toggleTheme);
 
 // Keyboard event listeners
 input.addEventListener("keydown", (e) => { 
@@ -474,4 +506,6 @@ input.addEventListener("blur", () => {
   input.parentElement.classList.remove("focused");
 });
 
+// Initialize theme and start conversation
+initTheme();
 startConversation();
