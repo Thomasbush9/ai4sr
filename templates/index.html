@@ -39,6 +39,10 @@
         </div>
         
         <div class="session-info">
+          <button id="sidebar-toggle-header" class="sidebar-toggle-header" title="Toggle Sidebar">
+            <span class="hamburger-icon">☰</span>
+            <span class="hamburger-text">Menu</span>
+          </button>
           <button id="theme-toggle" class="theme-button" title="Toggle Dark Mode">
             <span class="theme-icon">🌙</span>
             <span class="theme-text">Dark</span>
@@ -59,6 +63,24 @@
 
   <main class="main-content">
     <div class="container">
+      <!-- Sidebar -->
+      <div id="sidebar" class="sidebar">
+        <div class="sidebar-header">
+          <h3>Chat History</h3>
+          <button id="sidebar-toggle" class="sidebar-toggle" title="Toggle Sidebar">
+            <span class="toggle-icon">←</span>
+          </button>
+        </div>
+        <div class="sidebar-content">
+          <div class="sidebar-search">
+            <input type="text" id="sidebar-search" placeholder="Search projects..." class="search-input">
+          </div>
+          <div id="sidebar-projects" class="sidebar-projects">
+            <!-- Projects will be loaded here -->
+          </div>
+        </div>
+      </div>
+
       <div class="chat-container">
         <div id="chat" class="chat"></div>
         
@@ -87,6 +109,11 @@
       </div>
     </div>
   </main>
+
+  <!-- Floating sidebar toggle button -->
+  <button id="sidebar-toggle-float" class="sidebar-toggle-float" title="Toggle Sidebar">
+    <span class="float-icon">☰</span>
+  </button>
 
   <script src="{{ url_for('static', filename='main.js') }}"></script>
 </body>

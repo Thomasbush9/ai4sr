@@ -75,6 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_papers_status  ON papers(project_id, status);
 -- Chat tables
 CREATE TABLE IF NOT EXISTS conversations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL
 );
 

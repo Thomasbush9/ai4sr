@@ -100,7 +100,18 @@ def upsert_paper(con: sqlite3.Connection, project_id: int, paper: Dict) -> int:
               OR (fingerprint IS NOT NULL AND fingerprint = ?)
            )
     """, (project_id, paper.get("doi"), paper.get("pmid"), paper.get("pmcid"), paper.get("fingerprint")))
-    paper_id = cur.fetchone()[0]
+    row = cur.fetchone()
+    if row is None:
+        # If no paper found, it means the INSERT OR IGNORE didn't work due to constraints
+        # or the paper wasn't inserted for some reason. Let's try to insert it again.
+        con.execute(f"""
+            INSERT INTO papers
+            ({", ".join(cols)})
+            VALUES ({", ".join(["?"]*len(cols))})
+        """, vals)
+        paper_id = con.lastrowid
+    else:
+        paper_id = row[0]
 
     # Mirror into FTS
     con.execute("DELETE FROM papers_fts WHERE rowid = ?", (paper_id,))
@@ -119,27 +130,34 @@ def bulk_ingest_from_dfs(
     keep = df_results["decision"].isin(["include","maybe"])
     df_k = df.loc[keep].reset_index(drop=True)
     df_r = df_results.loc[keep].reset_index(drop=True)
+    
 
     for i, row in df_k.iterrows():
-        dec = df_r.loc[i, "decision"]
-        score = int(df_r.loc[i, "score"]) if pd.notna(df_r.loc[i, "score"]) else None
-        rationale = None
-        if "rationale" in df_r.columns and pd.notna(df_r.loc[i, "rationale"]):
-            rationale = str(df_r.loc[i, "rationale"])
+        try:
+            dec = df_r.loc[i, "decision"]
+            score = int(df_r.loc[i, "score"]) if pd.notna(df_r.loc[i, "score"]) else None
+            rationale = None
+            if "rationale" in df_r.columns and pd.notna(df_r.loc[i, "rationale"]):
+                rationale = str(df_r.loc[i, "rationale"])
 
-        title = row.get("title")
-        abstract = row.get("abstract")
-        authors = row.get("authors")
-        year = int(row["year"]) if "year" in row and pd.notna(row["year"]) else None
-        first_author = _first_author(authors)
+            title = row.get("title")
+            abstract = row.get("abstract")
+            authors = row.get("authors")
+            year = int(row["year"]) if "year" in row and pd.notna(row["year"]) else None
+            first_author = _first_author(authors)
 
-        pmid = str(row["pmid"]) if "pmid" in row and pd.notna(row["pmid"]) else None
-        pmcid = str(row["pmcid"]) if "pmcid" in row and pd.notna(row["pmcid"]) else None
-        doi = str(row["doi"]) if "doi" in row and pd.notna(row["doi"]) else None
+            pmid = str(row["pmid"]) if "pmid" in row and pd.notna(row["pmid"]) else None
+            pmcid = str(row["pmcid"]) if "pmcid" in row and pd.notna(row["pmcid"]) else None
+            doi = str(row["doi"]) if "doi" in row and pd.notna(row["doi"]) else None
 
-        pubmed_url = row.get("pubmed_url")
-        doi_url    = row.get("doi_url")
-        url        = doi_url or pubmed_url
+            pubmed_url = row.get("pubmed_url")
+            doi_url    = row.get("doi_url")
+            url        = doi_url or pubmed_url
+        except Exception as e:
+            print(f"DEBUG: Error processing row {i}: {e}")
+            print(f"DEBUG: Row data: {dict(row)}")
+            print(f"DEBUG: Decision data: {df_r.loc[i].to_dict() if i < len(df_r) else 'Index out of range'}")
+            raise
 
         paper = {
             # ids
@@ -164,9 +182,10 @@ def bulk_ingest_from_dfs(
             "score": score,
             "rationale": rationale,
             # other
-            "citations_crossref": int(row["citations_crossref"]) if "citations_crossref" in row and pd.notna(row["citations_crossref"]) else None,
+            "citations_crossref": int(row["citations_crossref"]) if "citations_crossref" in row and pd.notna(row["citations_crossref"]) and row["citations_crossref"] is not None else None,
             "fingerprint": _fingerprint(title or "", year, first_author),
         }
+        
         upsert_paper(con, project_id, paper)
 
 # ---------- queries for GUI ----------

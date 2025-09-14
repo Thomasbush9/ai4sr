@@ -8,6 +8,14 @@ const exportBtn = document.getElementById("export-chat");
 const helpBtn = document.getElementById("help-shortcuts");
 const themeBtn = document.getElementById("theme-toggle");
 
+// Sidebar elements
+const sidebar = document.getElementById("sidebar");
+const sidebarToggle = document.getElementById("sidebar-toggle");
+const sidebarToggleHeader = document.getElementById("sidebar-toggle-header");
+const sidebarToggleFloat = document.getElementById("sidebar-toggle-float");
+const sidebarProjects = document.getElementById("sidebar-projects");
+const sidebarSearch = document.getElementById("sidebar-search");
+
 function escapeHtml(str) {
   return str.replace(/[&<>"']/g, s => ({
     "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
@@ -377,19 +385,23 @@ function handleKeyboardShortcuts(e) {
 
 async function startConversation() {
   const mod = document.querySelector('input[name="mod"]:checked').value;
+  const projectName = document.getElementById("project_id")?.value?.trim() || "default";
   
   // Only start new conversation if we don't have one
   if (!conversationId) {
     const res = await fetch("/api/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ modality: mod })
+      body: JSON.stringify({ modality: mod, project_name: projectName })
     });
     const data = await res.json();
     conversationId = data.conversation_id;
   }
   
   convMeta.textContent = `Session #${conversationId} · ${mod === 'literature' ? 'Literature Review' : 'RAG Chat'}`;
+  
+  // Refresh sidebar to show new conversation
+  loadSidebarProjects();
   
   // Only show welcome message if chat is empty
   if (chat.children.length === 0) {
@@ -506,6 +518,248 @@ input.addEventListener("blur", () => {
   input.parentElement.classList.remove("focused");
 });
 
+// Refresh sidebar when project input changes
+const projectInput = document.getElementById('project_id');
+if (projectInput) {
+  projectInput.addEventListener('input', () => {
+    // Refresh sidebar to update active project highlighting
+    loadSidebarProjects();
+  });
+}
+
+// Sidebar functionality
+let sidebarCollapsed = false;
+let currentProjects = [];
+
+// Toggle sidebar
+function toggleSidebar() {
+  sidebarCollapsed = !sidebarCollapsed;
+  sidebar.classList.toggle('collapsed', sidebarCollapsed);
+  
+  // Update all toggle buttons
+  const toggleIcon = sidebarToggle.querySelector('.toggle-icon');
+  if (toggleIcon) {
+    toggleIcon.textContent = sidebarCollapsed ? '→' : '←';
+  }
+  
+  // Update floating button visibility
+  if (sidebarToggleFloat) {
+    sidebarToggleFloat.style.display = sidebarCollapsed ? 'block' : 'none';
+  }
+  
+  localStorage.setItem('sidebarCollapsed', sidebarCollapsed);
+}
+
+// Load projects for sidebar
+async function loadSidebarProjects() {
+  try {
+    const response = await fetch('/api/projects');
+    const projects = await response.json();
+    currentProjects = projects;
+    renderSidebarProjects(projects);
+  } catch (error) {
+    console.error('Error loading projects:', error);
+    sidebarProjects.innerHTML = '<div class="sidebar-error">Error loading projects</div>';
+  }
+}
+
+// Render projects in sidebar
+function renderSidebarProjects(projects) {
+  if (projects.length === 0) {
+    sidebarProjects.innerHTML = '<div class="sidebar-empty">No projects yet</div>';
+    return;
+  }
+
+  // Get current project name
+  const currentProject = document.getElementById('project_id')?.value?.trim() || '';
+
+  sidebarProjects.innerHTML = projects.map(project => {
+    const isActive = project.name === currentProject;
+    return `
+      <div class="project-item ${isActive ? 'active' : ''}" data-project-id="${project.id}">
+        <div class="project-header">
+          <span class="project-name">${escapeHtml(project.name)}</span>
+          <div class="project-stats">
+            <span class="project-count" title="Conversations">💬 ${project.conversation_count}</span>
+            <span class="project-papers" title="Papers">📄 ${project.paper_count}</span>
+          </div>
+        </div>
+        <div class="project-meta">
+          <span class="project-date">${formatDate(project.last_conversation || project.created_at)}</span>
+        </div>
+        <div class="project-conversations" id="conversations-${project.id}">
+          <!-- Conversations will be loaded here -->
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Add click handlers for projects
+  document.querySelectorAll('.project-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const projectId = item.dataset.projectId;
+      const project = projects.find(p => p.id == projectId);
+      loadProject(projectId, project.name);
+    });
+  });
+}
+
+// Load a project (switch to project context and start fresh conversation)
+async function loadProject(projectId, projectName) {
+  try {
+    // Set the project name in the input field
+    document.getElementById('project_id').value = projectName;
+    
+    // Clear current chat
+    chat.innerHTML = '';
+    
+    // Reset conversation ID to start fresh
+    conversationId = null;
+    
+    // Start a new conversation for this project
+    await startConversation();
+    
+    // Update conversation meta to show project
+    convMeta.textContent = `Project: ${projectName} | New Conversation`;
+    
+    // Show project loaded message
+    addMessage("assistant", `📁 **Switched to Project: ${projectName}**\n\nYou can now ask questions about the papers in this project using RAG mode, or search for new literature using Literature Review mode.`, "rag");
+    
+    // Refresh sidebar to show updated state
+    loadSidebarProjects();
+    
+  } catch (error) {
+    console.error('Error loading project:', error);
+    addMessage("assistant", `Error loading project: ${error.message}`, "rag");
+  }
+}
+
+// Load conversations for a project
+async function loadProjectConversations(projectId, projectName) {
+  try {
+    const response = await fetch(`/api/conversations/${projectId}`);
+    const conversations = await response.json();
+    
+    const container = document.getElementById(`conversations-${projectId}`);
+    if (conversations.length === 0) {
+      container.innerHTML = '<div class="conversation-empty">No conversations yet</div>';
+      return;
+    }
+
+    container.innerHTML = conversations.map(conv => `
+      <div class="conversation-item" data-conversation-id="${conv.id}">
+        <div class="conversation-preview">
+          <span class="conversation-time">${formatDate(conv.last_message)}</span>
+          <span class="conversation-count">${conv.message_count} messages</span>
+        </div>
+      </div>
+    `).join('');
+
+    // Add click handlers for conversations
+    container.querySelectorAll('.conversation-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const conversationId = item.dataset.conversationId;
+        loadConversation(conversationId, projectName);
+      });
+    });
+
+  } catch (error) {
+    console.error('Error loading conversations:', error);
+  }
+}
+
+// Load a specific conversation
+async function loadConversation(conversationId, projectName) {
+  try {
+    const response = await fetch(`/api/conversations/${conversationId}/messages`);
+    const messages = await response.json();
+    
+    // Clear current chat
+    chat.innerHTML = '';
+    
+    // Set the project name in the input
+    document.getElementById('project_id').value = projectName;
+    
+    // Load messages
+    messages.forEach(msg => {
+      addMessage(msg.role, msg.text);
+    });
+    
+    // Set conversation ID
+    conversationId = parseInt(conversationId);
+    
+    // Update conversation meta
+    convMeta.textContent = `Project: ${projectName} | Conversation: ${conversationId}`;
+    
+    // Scroll to bottom
+    chat.scrollTop = chat.scrollHeight;
+    
+  } catch (error) {
+    console.error('Error loading conversation:', error);
+  }
+}
+
+// Format date for display
+function formatDate(dateString) {
+  if (!dateString) return 'Unknown';
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffTime = Math.abs(now - date);
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (diffDays === 1) return 'Today';
+  if (diffDays === 2) return 'Yesterday';
+  if (diffDays <= 7) return `${diffDays - 1} days ago`;
+  
+  return date.toLocaleDateString();
+}
+
+// Search projects
+function searchProjects(query) {
+  const filtered = currentProjects.filter(project => 
+    project.name.toLowerCase().includes(query.toLowerCase())
+  );
+  renderSidebarProjects(filtered);
+}
+
+// Initialize sidebar
+function initSidebar() {
+  // Load saved sidebar state
+  const savedState = localStorage.getItem('sidebarCollapsed');
+  if (savedState === 'true') {
+    sidebarCollapsed = true;
+    sidebar.classList.add('collapsed');
+    const toggleIcon = sidebarToggle.querySelector('.toggle-icon');
+    if (toggleIcon) {
+      toggleIcon.textContent = '→';
+    }
+  }
+  
+  // Set initial floating button visibility
+  if (sidebarToggleFloat) {
+    sidebarToggleFloat.style.display = sidebarCollapsed ? 'block' : 'none';
+  }
+  
+  // Load projects
+  loadSidebarProjects();
+  
+  // Add event listeners
+  if (sidebarToggle) {
+    sidebarToggle.addEventListener('click', toggleSidebar);
+  }
+  if (sidebarToggleHeader) {
+    sidebarToggleHeader.addEventListener('click', toggleSidebar);
+  }
+  if (sidebarToggleFloat) {
+    sidebarToggleFloat.addEventListener('click', toggleSidebar);
+  }
+  if (sidebarSearch) {
+    sidebarSearch.addEventListener('input', (e) => searchProjects(e.target.value));
+  }
+}
+
 // Initialize theme and start conversation
 initTheme();
+initSidebar();
 startConversation();

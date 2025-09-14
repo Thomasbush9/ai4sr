@@ -9,14 +9,91 @@ api_bp = Blueprint("api", __name__)
 
 @api_bp.post("/start")
 def start():
+    data = request.get_json(force=True) if request.is_json else {}
+    project_name = data.get("project_name", "default")
+    
     with get_db() as db:
+        # Get or create project
+        project_id = get_or_create_project(db, project_name)
+        
+        # Create conversation linked to project
         cur = db.execute(
-            "INSERT INTO conversations (created_at) VALUES (?)",
-            (datetime.utcnow().isoformat(),)
+            "INSERT INTO conversations (project_id, created_at) VALUES (?, ?)",
+            (project_id, datetime.utcnow().isoformat())
         )
         conv_id = cur.lastrowid
         db.commit()
-    return jsonify({"conversation_id": conv_id})
+    return jsonify({"conversation_id": conv_id, "project_id": project_id})
+
+@api_bp.get("/projects")
+def get_projects():
+    """Get all projects with their conversation counts"""
+    with get_db() as db:
+        projects = db.execute("""
+            SELECT 
+                p.id, 
+                p.name, 
+                p.created_at,
+                COUNT(DISTINCT c.id) as conversation_count,
+                COUNT(DISTINCT papers.id) as paper_count,
+                MAX(c.created_at) as last_conversation
+            FROM projects p
+            LEFT JOIN conversations c ON p.id = c.project_id
+            LEFT JOIN papers ON p.id = papers.project_id
+            GROUP BY p.id, p.name, p.created_at
+            ORDER BY last_conversation DESC, p.created_at DESC
+        """).fetchall()
+        
+        return jsonify([{
+            "id": p["id"],
+            "name": p["name"],
+            "created_at": p["created_at"],
+            "conversation_count": p["conversation_count"],
+            "paper_count": p["paper_count"],
+            "last_conversation": p["last_conversation"]
+        } for p in projects])
+
+@api_bp.get("/conversations/<int:project_id>")
+def get_conversations(project_id):
+    """Get conversations for a specific project"""
+    with get_db() as db:
+        conversations = db.execute("""
+            SELECT c.id, c.created_at, 
+                   COUNT(m.id) as message_count,
+                   MIN(m.created_at) as first_message,
+                   MAX(m.created_at) as last_message
+            FROM conversations c
+            LEFT JOIN messages m ON c.id = m.conversation_id
+            WHERE c.project_id = ?
+            GROUP BY c.id, c.created_at
+            ORDER BY c.created_at DESC
+            LIMIT 20
+        """, (project_id,)).fetchall()
+        
+        return jsonify([{
+            "id": c["id"],
+            "created_at": c["created_at"],
+            "message_count": c["message_count"],
+            "first_message": c["first_message"],
+            "last_message": c["last_message"]
+        } for c in conversations])
+
+@api_bp.get("/conversations/<int:conversation_id>/messages")
+def get_conversation_messages(conversation_id):
+    """Get messages for a specific conversation"""
+    with get_db() as db:
+        messages = db.execute("""
+            SELECT role, text, created_at
+            FROM messages
+            WHERE conversation_id = ?
+            ORDER BY created_at ASC
+        """, (conversation_id,)).fetchall()
+        
+        return jsonify([{
+            "role": m["role"],
+            "text": m["text"],
+            "created_at": m["created_at"]
+        } for m in messages])
 
 @api_bp.post("/message")
 def message():
@@ -50,6 +127,31 @@ def message():
             project_id = get_or_create_project(db, project_name)
             db.commit()
         print(f"DEBUG: Got project_id: {project_id}")
+
+    # Ensure conversation is linked to the project
+    with get_db() as db:
+        # Check if conversation exists and update project_id if needed
+        existing_conv = db.execute(
+            "SELECT project_id FROM conversations WHERE id = ?", 
+            (conv_id,)
+        ).fetchone()
+        
+        if existing_conv and existing_conv["project_id"] != project_id:
+            # Update conversation to link to correct project
+            db.execute(
+                "UPDATE conversations SET project_id = ? WHERE id = ?",
+                (project_id, conv_id)
+            )
+            db.commit()
+            print(f"DEBUG: Updated conversation {conv_id} to project {project_id}")
+        elif not existing_conv:
+            # Create conversation if it doesn't exist
+            db.execute(
+                "INSERT INTO conversations (id, project_id, created_at) VALUES (?, ?, ?)",
+                (conv_id, project_id, datetime.utcnow().isoformat())
+            )
+            db.commit()
+            print(f"DEBUG: Created conversation {conv_id} for project {project_id}")
 
     if not text:
         return jsonify({"reply": "Please enter a query."})

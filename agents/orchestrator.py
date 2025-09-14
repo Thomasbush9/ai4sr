@@ -171,6 +171,9 @@ def literature_review(query: str, project_id: int, n: int = 10):
             decisions.append(basic_decision)
     
     print(f"DEBUG: Completed screening, {len(decisions)} decisions made")
+    print(f"DEBUG: Decisions sample: {decisions[:2] if decisions else 'No decisions'}")
+    print(f"DEBUG: DataFrame shape: {df.shape}")
+    print(f"DEBUG: DataFrame columns: {df.columns.tolist()}")
     print("DEBUG: Calling run_selection_and_save...")
     result = run_selection_and_save(df, decisions, project_id)
     
