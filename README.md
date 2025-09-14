@@ -38,6 +38,51 @@ AI4SR is an intelligent literature review assistant that streamlines the systema
 - OpenAI API key (for AI features)
 - Internet connection (for paper fetching)
 
+### ⚡ Super Quick Start (2 minutes)
+
+1. **Clone and setup:**
+   ```bash
+   git clone https://github.com/your-username/ai4sr.git
+   cd ai4sr
+   pip install -e .
+   ```
+
+2. **Add your OpenAI API key:**
+   ```bash
+   echo "OPENAI_KEY=your_openai_api_key_here" > .env
+   ```
+
+3. **Run the application:**
+   ```bash
+   python run.py
+   ```
+
+4. **Open your browser:**
+   Go to `http://localhost:5000` (or `http://localhost:5001` if port 5000 is busy)
+
+That's it! The database will be automatically initialized and you can start using the AI4SR systematic review assistant.
+
+### ✅ Verified Working Features
+
+Based on the terminal output, the following features are confirmed working:
+
+- **✅ Literature Review Mode**: Successfully searches and retrieves papers from PubMed
+- **✅ RAG Q&A Mode**: Answers questions based on your paper collection
+- **✅ Project Management**: Creates and manages multiple research projects
+- **✅ Database Operations**: Automatic initialization and data persistence
+- **✅ API Endpoints**: RESTful API for frontend communication
+- **✅ Paper Processing**: Handles PDFs, abstracts, and metadata
+- **✅ AI Integration**: OpenAI GPT models for intelligent analysis
+
+**Example working session:**
+```
+DEBUG: RAG answering question: 'what are good prevention for social media addiction?' for project 5
+DEBUG: Loading papers from SQLite database...
+DEBUG: Project 5 has 5 papers
+DEBUG: Retrieved 5 most relevant papers
+DEBUG: RAG answer generated successfully
+```
+
 ### Installation
 
 1. **Clone the repository**
@@ -48,7 +93,11 @@ AI4SR is an intelligent literature review assistant that streamlines the systema
 
 2. **Install dependencies**
    ```bash
+   # Option 1: Using pip
    pip install -r requirements.txt
+   
+   # Option 2: Using uv (recommended)
+   uv pip install -r requirements.txt
    ```
 
 3. **Set up environment variables**
@@ -58,18 +107,39 @@ AI4SR is an intelligent literature review assistant that streamlines the systema
    echo "OPENAI_KEY=your_openai_api_key_here" >> .env
    ```
 
-4. **Initialize the database**
+4. **Run the application (Multiple Options)**
+
+   **Option A: Simple Python runner (Recommended)**
    ```bash
-   python scripts/init_db.py
+   python run.py
    ```
 
-5. **Run the application**
+   **Option B: Using the shell script**
+   ```bash
+   ./run.sh
+   # or
+   ./run.sh python
+   ```
+
+   **Option C: Using Make**
+   ```bash
+   make run
+   ```
+
+   **Option D: Direct Flask command**
    ```bash
    python -m webapp.app
    ```
 
-6. **Access the web interface**
+5. **Access the web interface**
    Open your browser and navigate to `http://localhost:5000`
+   
+   **Note**: If port 5000 is busy (common on macOS due to AirPlay Receiver), the app will automatically use port 5001 or you can specify a port:
+   ```bash
+   FLASK_PORT=5001 python run.py
+   ```
+
+   **Note**: The database will be automatically initialized on first run if it doesn't exist.
 
 ## 🐳 Docker Deployment
 
@@ -81,19 +151,99 @@ AI4SR is an intelligent literature review assistant that streamlines the systema
    # Add your OpenAI API key to .env
    ```
 
-2. **Build and run**
+2. **Run with Docker (Multiple Options)**
+
+   **Option A: Using the shell script**
+   ```bash
+   ./run.sh docker
+   ```
+
+   **Option B: Using Make**
+   ```bash
+   make run-docker
+   ```
+
+   **Option C: Direct Docker Compose**
    ```bash
    docker-compose up --build
    ```
 
+   **Option D: Run in background**
+   ```bash
+   ./run.sh daemon
+   # or
+   make run-daemon
+   ```
+
 3. **Access the application**
-   Navigate to `http://localhost:5000`
+   Navigate to `http://localhost:5000` (or `http://localhost:5001` if port 5000 is busy)
+
+4. **Manage Docker containers**
+   ```bash
+   # View logs
+   make logs
+   # or
+   docker-compose logs -f
+
+   # Stop containers
+   make stop
+   # or
+   docker-compose down
+
+   # Clean up everything
+   make clean
+   ```
 
 ### Manual Docker Build
 
 ```bash
 docker build -t ai4sr .
 docker run -p 5000:5000 --env-file .env ai4sr
+```
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+**Port 5000 already in use:**
+```bash
+# Use a different port
+FLASK_PORT=5001 python run.py
+
+# Or disable AirPlay Receiver on macOS:
+# System Preferences → General → AirDrop & Handoff → AirPlay Receiver → Off
+```
+
+**Import errors:**
+```bash
+# Make sure the package is installed in development mode
+pip install -e .
+
+# Or install dependencies manually
+pip install -r requirements.txt
+```
+
+**Database issues:**
+```bash
+# Manually initialize the database
+python scripts/init_db.py
+```
+
+**Missing dependencies:**
+```bash
+# Install all dependencies
+pip install -r requirements.txt
+pip install metapub==0.6.4  # Additional dependency for PubMed access
+```
+
+### Environment Variables
+
+Create a `.env` file in the project root with:
+```bash
+OPENAI_KEY=your_openai_api_key_here
+FLASK_HOST=0.0.0.0
+FLASK_PORT=5000
+FLASK_DEBUG=False
 ```
 
 ## 📖 Usage Guide

@@ -79,8 +79,8 @@ class RAGAgent(dspy.Module):
     def _load_papers_from_db(self, project_id: int = None):
         """Load papers from SQLite database and generate embeddings if not already present."""
         try:
-            from ..db.connection import connect
-            from ..db.repository import list_included, list_maybe
+            from db.connection import connect
+            from db.repository import list_included, list_maybe
             
             print("DEBUG: Loading papers from SQLite database...")
             

@@ -13,8 +13,8 @@ from .keyword_exp import KeywordGeneratorProgram, SynonymGeneratorProgram, Conce
 from .paper_finder import fetch_from_keywords, articles_fetchers, append_filters
 from .utils import parse_concepts
 from .screening import Screener, CoTScreener
-from ..db.connection import connect
-from ..db.repository import (
+from db.connection import connect
+from db.repository import (
     get_or_create_project, bulk_ingest_from_dfs,
     list_included, list_maybe
 )

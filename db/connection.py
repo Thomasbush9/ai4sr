@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 from . import schema_path
-from ai4sr.config import DB_PATH
+from config import DB_PATH
 
 def connect(db_path:Path | None=None)-> sqlite3.Connection:
     path = db_path or DB_PATH

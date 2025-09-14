@@ -1,9 +1,9 @@
 # webapp/routes.py
 from flask import Blueprint, request, jsonify
 from datetime import datetime
-from .db import get_db
-from ai4sr.agents.orchestrator import literature_review, rag_answer
-from ai4sr.db.repository import get_or_create_project
+from webapp.db import get_db
+from agents.orchestrator import literature_review, rag_answer
+from db.repository import get_or_create_project
 
 api_bp = Blueprint("api", __name__)
 
