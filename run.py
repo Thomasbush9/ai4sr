@@ -7,6 +7,10 @@ This script handles database initialization and starts the Flask app.
 import os
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add the project root to Python path
 project_root = Path(__file__).parent
@@ -32,11 +36,18 @@ def main():
         from db.connection import init_db
         from config import DB_PATH
         
-        # Initialize database if it doesn't exist
-        if not os.path.exists(DB_PATH):
-            print(f"Initializing database at {DB_PATH}")
+        # Always try to initialize database (safe to run multiple times)
+        # This ensures schema is up to date
+        try:
+            if not os.path.exists(DB_PATH):
+                print(f"📊 Database not found. Initializing at {DB_PATH}...")
+            else:
+                print(f"📊 Database found at {DB_PATH}. Verifying schema...")
             init_db()
-            print("Database initialized successfully!")
+        except Exception as e:
+            print(f"❌ Database initialization failed: {e}")
+            print("   This might cause issues with the application.")
+            # Continue anyway - maybe the database exists and is fine
         
         # Create Flask app
         app = create_app()

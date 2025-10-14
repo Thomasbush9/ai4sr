@@ -32,10 +32,33 @@ AI4SR is an intelligent literature review assistant that streamlines the systema
 
 ## 🚀 Quick Start
 
+### 🐳 Docker Quick Start (Easiest - Recommended for Shipping)
+
+The fastest way to get AI4SR running with zero dependency issues:
+
+1. **Clone and configure:**
+   ```bash
+   git clone https://github.com/your-username/ai4sr.git
+   cd ai4sr
+   cp env.example .env
+   # Edit .env and add your OpenAI API key
+   ```
+
+2. **Run with Docker:**
+   ```bash
+   docker-compose up --build
+   ```
+
+3. **Access the app:**
+   Open `http://localhost:5000` in your browser
+
+That's it! Docker handles all dependencies, Python version, and setup automatically.
+
 ### Prerequisites
 
-- Python 3.10 or higher
-- OpenAI API key (for AI features)
+- **For Docker:** Docker and Docker Compose installed
+- **For standard Python:** Python 3.10 or higher
+- **For both:** OpenAI API key (get from https://platform.openai.com/api-keys)
 - Internet connection (for paper fetching)
 
 ### ⚡ Super Quick Start (2 minutes)
@@ -147,7 +170,7 @@ DEBUG: RAG answer generated successfully
 
 1. **Set up environment**
    ```bash
-   cp .env.example .env
+   cp env.example .env
    # Add your OpenAI API key to .env
    ```
 
@@ -198,7 +221,7 @@ DEBUG: RAG answer generated successfully
 
 ```bash
 docker build -t ai4sr .
-docker run -p 5000:5000 --env-file .env ai4sr
+docker run -p 5000:5000 --env-file .env -v $(pwd)/data:/app/data ai4sr
 ```
 
 ## 🔧 Troubleshooting
@@ -234,6 +257,40 @@ python scripts/init_db.py
 # Install all dependencies
 pip install -r requirements.txt
 pip install metapub==0.6.4  # Additional dependency for PubMed access
+```
+
+### Docker Issues
+
+**Docker daemon not running:**
+```bash
+# On macOS/Windows: Start Docker Desktop
+# On Linux: 
+sudo systemctl start docker
+```
+
+**Port conflicts in Docker:**
+```bash
+# Edit docker-compose.yml to change the port mapping:
+# Change "5000:5000" to "5001:5000" (or any available port)
+```
+
+**Permission issues with data directory:**
+```bash
+# Ensure the data directory has proper permissions
+chmod -R 755 data/
+```
+
+**Rebuilding after changes:**
+```bash
+# Force rebuild and restart
+docker-compose down
+docker-compose up --build --force-recreate
+```
+
+**View Docker logs:**
+```bash
+# See what's happening inside the container
+docker-compose logs -f
 ```
 
 ### Environment Variables
