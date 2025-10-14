@@ -5,6 +5,7 @@ from .utils import build_pubmed_query_from_concepts, build_pubmed_query_from_key
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional, Literal
 from argparse import ArgumentParser
+import threading
 
 import dspy
 import pandas as pd
@@ -19,8 +20,28 @@ from db.repository import (
     list_included, list_maybe
 )
 from .rag_agent import RAGAgent
+
 load_dotenv()
-OPENAI_KEY= os.getenv("OPENAI_KEY")
+OPENAI_KEY = os.getenv("OPENAI_KEY")
+
+# Global lock for DSPy configuration
+_dspy_lock = threading.Lock()
+_dspy_configured_key = None
+
+def configure_dspy_safely(api_key: str):
+    """Safely configure DSPy with the given API key, respecting threading constraints"""
+    global _dspy_configured_key
+    
+    with _dspy_lock:
+        # Only reconfigure if we're using a different key
+        if _dspy_configured_key != api_key:
+            lm = dspy.LM(api_key=api_key, model="gpt-4o-mini", max_tokens=256)
+            dspy.configure(lm=lm)
+            _dspy_configured_key = api_key
+
+# Configure DSPy with default key at module import if available
+if OPENAI_KEY and OPENAI_KEY != "your_openai_api_key_here":
+    configure_dspy_safely(OPENAI_KEY)
 def run_selection_and_save(
     df: pd.DataFrame,
     decisions: list[dict],
@@ -55,11 +76,16 @@ def run_selection_and_save(
     return project_id, included, maybes, selected_papers, maybe_papers
 
 
-def literature_review(query: str, project_id: int, n: int = 10):
+
+def literature_review(query: str, project_id: int, n: int = 10, api_key: str = None):
     print(f"DEBUG: Starting literature review for query: '{query}', project_id: {project_id}, n: {n}")
     
-    lm = dspy.LM(api_key=OPENAI_KEY, model="gpt-4o-mini", max_tokens=256)
-    dspy.configure(lm=lm)
+    # Configure DSPy with user's API key if provided, otherwise use default
+    key_to_use = api_key if api_key else OPENAI_KEY
+    if key_to_use and key_to_use != "your_openai_api_key_here":
+        configure_dspy_safely(key_to_use)
+    else:
+        raise ValueError("No valid API key provided. Please configure your OpenAI API key in settings.")
 
     print("DEBUG: Generating keywords...")
     keyword_gen = KeywordGeneratorProgram()
@@ -212,7 +238,7 @@ def literature_review(query: str, project_id: int, n: int = 10):
     print(f"DEBUG: Literature review completed successfully: {result}")
     return result
 
-def rag_answer(question: str, project_id: int, db_conn=None, top_k: int = 5) -> str:
+def rag_answer(question: str, project_id: int, db_conn=None, top_k: int = 5, api_key: str = None) -> str:
     """
     Answer a question using RAG on the literature review database.
     
@@ -221,6 +247,7 @@ def rag_answer(question: str, project_id: int, db_conn=None, top_k: int = 5) -> 
         project_id: The project ID to search within
         db_conn: Database connection (optional, will create if not provided)
         top_k: Number of most relevant papers to retrieve
+        api_key: OpenAI API key (optional, will use env var if not provided)
     
     Returns:
         Answer string based on retrieved papers
@@ -228,8 +255,16 @@ def rag_answer(question: str, project_id: int, db_conn=None, top_k: int = 5) -> 
     print(f"DEBUG: RAG answering question: '{question}' for project {project_id}")
     
     try:
-        # Initialize RAG agent
-        rag_agent = RAGAgent()
+        # Get the API key to use
+        key_to_use = api_key if api_key else OPENAI_KEY
+        if not key_to_use or key_to_use == "your_openai_api_key_here":
+            return "Please configure your OpenAI API key in settings before using RAG mode."
+        
+        # Configure DSPy safely
+        configure_dspy_safely(key_to_use)
+        
+        # Initialize RAG agent with the API key
+        rag_agent = RAGAgent(api_key=key_to_use)
         
         # Load papers for the specific project only
         rag_agent._load_papers_from_db(project_id)
@@ -252,15 +287,7 @@ if __name__ == "__main__":
     query = args.q
     n = args.n
 
-    #config lm
-    load_dotenv()
-    OPENAI_KEY= os.getenv("OPENAI_KEY")
-    lm = dspy.LM(
-        api_key=OPENAI_KEY,
-        model="gpt-4o-mini",
-        max_tokens=256# or the exact model you're using
-        )
-    dspy.configure(lm=lm)
+    # DSPy is already configured globally at module import
 
     keyword_gen = KeywordGeneratorProgram()
     concept_gen = dspy.Predict(ConceptGenerator)

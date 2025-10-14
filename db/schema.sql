@@ -56,3 +56,22 @@ CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5(
 CREATE INDEX IF NOT EXISTS idx_papers_project ON papers(project_id);
 CREATE INDEX IF NOT EXISTS idx_papers_status  ON papers(project_id, status);
 
+-- Conversations table for chat history
+CREATE TABLE IF NOT EXISTS conversations (
+  id          INTEGER PRIMARY KEY,
+  project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Messages table for storing conversation messages
+CREATE TABLE IF NOT EXISTS messages (
+  id              INTEGER PRIMARY KEY,
+  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  role            TEXT NOT NULL CHECK (role IN ('user','assistant','system')),
+  content         TEXT NOT NULL,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project_id);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
+

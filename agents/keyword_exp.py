@@ -124,12 +124,8 @@ class ConceptGenerator(dspy.Signature):
 if __name__ == "__main__":
     load_dotenv()
     OPENAI_KEY=os.getenv("OPENAI_KEY")
-    lm = dspy.LM(
-        api_key=OPENAI_KEY,
-        model="gpt-4o-mini",
-        max_tokens=256# or the exact model you're using
-    )
-    dspy.configure(lm=lm)
+    # Don't reconfigure DSPy - use the global configuration
+    # This avoids threading issues in Docker
     kg = KeywordGeneratorProgram()
     sg = SynonymGeneratorProgram()
     cg = dspy.Predict(ConceptGenerator)

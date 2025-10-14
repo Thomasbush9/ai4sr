@@ -83,7 +83,7 @@ def get_conversation_messages(conversation_id):
     """Get messages for a specific conversation"""
     with get_db() as db:
         messages = db.execute("""
-            SELECT role, text, created_at
+            SELECT role, content, created_at
             FROM messages
             WHERE conversation_id = ?
             ORDER BY created_at ASC
@@ -91,9 +91,62 @@ def get_conversation_messages(conversation_id):
         
         return jsonify([{
             "role": m["role"],
-            "text": m["text"],
+            "text": m["content"],
             "created_at": m["created_at"]
         } for m in messages])
+
+@api_bp.post("/test-openai")
+def test_openai_key():
+    """Test if an OpenAI API key is valid"""
+    try:
+        data = request.get_json()
+        api_key = data.get('api_key')
+        
+        if not api_key:
+            return jsonify({"success": False, "error": "No API key provided"}), 400
+        
+        # Test the API key with a simple request
+        import openai
+        client = openai.OpenAI(api_key=api_key)
+        
+        # Make a simple test request
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=5
+        )
+        
+        return jsonify({"success": True, "message": "API key is valid"})
+        
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
+@api_bp.delete("/projects/<int:project_id>")
+def delete_project(project_id):
+    """Delete a project and all its associated data"""
+    try:
+        with get_db() as db:
+            # Check if project exists
+            project = db.execute("SELECT name FROM projects WHERE id = ?", (project_id,)).fetchone()
+            if not project:
+                return jsonify({"error": "Project not found"}), 404
+            
+            # Delete all conversations and messages for this project
+            db.execute("DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = ?)", (project_id,))
+            db.execute("DELETE FROM conversations WHERE project_id = ?", (project_id,))
+            
+            # Delete all papers for this project
+            db.execute("DELETE FROM papers WHERE project_id = ?", (project_id,))
+            
+            # Delete the project itself
+            db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+            
+            db.commit()
+            
+            return jsonify({"message": f"Project '{project['name']}' deleted successfully"})
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @api_bp.post("/message")
 def message():
@@ -103,6 +156,7 @@ def message():
     modality  = (data.get("modality") or "").strip()  # "literature" | "rag"
     project_name = data.get("project_id")  # Get the raw value first
     paper_limit = int(data.get("paper_limit", 10))  # Default to 10 if not provided
+    user_api_key = data.get("api_key")  # Get API key from frontend
     # Validate paper limit
     paper_limit = max(1, min(50, paper_limit))  # Clamp between 1 and 50
     
@@ -161,7 +215,7 @@ def message():
     # 1) Save user message
     with get_db() as db:
         db.execute(
-            "INSERT INTO messages (conversation_id, role, text, created_at) VALUES (?, 'user', ?, ?)",
+            "INSERT INTO messages (conversation_id, role, content, created_at) VALUES (?, 'user', ?, ?)",
             (conv_id, text, datetime.utcnow().isoformat()),
         )
         db.commit()
@@ -173,7 +227,8 @@ def message():
             pid, included, maybes, selected_df, maybe_df = literature_review(
                 query=text,
                 project_id=project_id,
-                n=paper_limit
+                n=paper_limit,
+                api_key=user_api_key
             )
             project_id = pid  # ensure we carry the resolved id
             reply_core = "Literature review completed."
@@ -245,16 +300,16 @@ def message():
                 reply = reply_core
 
             db.execute(
-                "INSERT INTO messages (conversation_id, role, text, created_at) VALUES (?, 'assistant', ?, ?)",
+                "INSERT INTO messages (conversation_id, role, content, created_at) VALUES (?, 'assistant', ?, ?)",
                 (conv_id, reply, datetime.utcnow().isoformat()),
             )
             db.commit()
 
     else:  # RAG
         with get_db() as db:
-            reply = rag_answer(text, project_id, db)  # make sure rag_answer filters by project_id
+            reply = rag_answer(text, project_id, db, api_key=user_api_key)  # Pass user's API key
             db.execute(
-                "INSERT INTO messages (conversation_id, role, text, created_at) VALUES (?, 'assistant', ?, ?)",
+                "INSERT INTO messages (conversation_id, role, content, created_at) VALUES (?, 'assistant', ?, ?)",
                 (conv_id, reply, datetime.utcnow().isoformat()),
             )
             db.commit()

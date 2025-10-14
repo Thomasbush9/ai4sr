@@ -7,6 +7,7 @@ const convMeta = document.getElementById("conv-meta");
 const exportBtn = document.getElementById("export-chat");
 const helpBtn = document.getElementById("help-shortcuts");
 const themeBtn = document.getElementById("theme-toggle");
+const settingsBtn = document.getElementById("settings-button");
 
 // Sidebar elements
 const sidebar = document.getElementById("sidebar");
@@ -15,6 +16,7 @@ const sidebarToggleHeader = document.getElementById("sidebar-toggle-header");
 const sidebarToggleFloat = document.getElementById("sidebar-toggle-float");
 const sidebarProjects = document.getElementById("sidebar-projects");
 const sidebarSearch = document.getElementById("sidebar-search");
+const deleteProjectBtn = document.getElementById("delete-project");
 
 function escapeHtml(str) {
   return str.replace(/[&<>"']/g, s => ({
@@ -400,6 +402,13 @@ async function startConversation() {
   
   convMeta.textContent = `Session #${conversationId} · ${mod === 'literature' ? 'Literature Review' : 'RAG Chat'}`;
   
+  // Show/hide delete button based on whether we have a project
+  if (conversationId && projectName !== "default") {
+    deleteProjectBtn.style.display = 'flex';
+  } else {
+    deleteProjectBtn.style.display = 'none';
+  }
+  
   // Refresh sidebar to show new conversation
   loadSidebarProjects();
   
@@ -441,6 +450,9 @@ async function sendMessage() {
   }
 
   try {
+    // Get API key from localStorage if available
+    const apiKey = localStorage.getItem('openai_api_key');
+    
     const res = await fetch("/api/message", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -449,7 +461,8 @@ async function sendMessage() {
         text,
         modality: mod,
         project_id: pid || "",
-        paper_limit: paperLimit
+        paper_limit: paperLimit,
+        api_key: apiKey
       })
     });
     const data = await res.json();
@@ -759,7 +772,185 @@ function initSidebar() {
   }
 }
 
+// Settings functionality
+function initSettings() {
+  const settingsModal = document.getElementById("settings-modal");
+  const settingsClose = document.getElementById("settings-close");
+  const cancelSettings = document.getElementById("cancel-settings");
+  const saveSettings = document.getElementById("save-settings");
+  const testApiKey = document.getElementById("test-api-key");
+  const openaiKeyInput = document.getElementById("openai-key");
+  const toggleApiKey = document.getElementById("toggle-api-key");
+  const additionalKeyInput = document.getElementById("additional-key");
+  const toggleAdditionalKey = document.getElementById("toggle-additional-key");
+  const defaultPapersInput = document.getElementById("default-papers");
+  const defaultProjectInput = document.getElementById("default-project");
+  const apiStatus = document.getElementById("api-status");
+
+  // Load saved settings
+  function loadSettings() {
+    const savedKey = localStorage.getItem('openai_api_key');
+    const savedAdditionalKey = localStorage.getItem('additional_api_key');
+    const savedPapers = localStorage.getItem('default_papers');
+    const savedProject = localStorage.getItem('default_project');
+    
+    if (savedKey) openaiKeyInput.value = savedKey;
+    if (savedAdditionalKey) additionalKeyInput.value = savedAdditionalKey;
+    if (savedPapers) defaultPapersInput.value = savedPapers;
+    if (savedProject) defaultProjectInput.value = savedProject;
+  }
+
+  // Save settings
+  function saveSettingsToStorage() {
+    const apiKey = openaiKeyInput.value.trim();
+    const additionalKey = additionalKeyInput.value.trim();
+    const papers = defaultPapersInput.value;
+    const project = defaultProjectInput.value.trim();
+    
+    if (apiKey) localStorage.setItem('openai_api_key', apiKey);
+    else localStorage.removeItem('openai_api_key'); // Remove if empty
+    if (additionalKey) localStorage.setItem('additional_api_key', additionalKey);
+    else localStorage.removeItem('additional_api_key'); // Remove if empty
+    if (papers) localStorage.setItem('default_papers', papers);
+    if (project) localStorage.setItem('default_project', project);
+    
+    // Update UI with saved values
+    if (papers) document.getElementById("papers").value = papers;
+    if (project) document.getElementById("project").value = project;
+  }
+
+  // Test API key
+  async function testApiKeyFunction() {
+    const apiKey = openaiKeyInput.value.trim();
+    if (!apiKey) {
+      apiStatus.textContent = "Please enter an API key";
+      apiStatus.className = "api-status error";
+      return;
+    }
+
+    apiStatus.textContent = "Testing...";
+    apiStatus.className = "api-status";
+
+    try {
+      const response = await fetch('/api/test-openai', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ api_key: apiKey })
+      });
+
+      const result = await response.json();
+      
+      if (response.ok && result.success) {
+        apiStatus.textContent = "✓ API key is valid";
+        apiStatus.className = "api-status success";
+      } else {
+        apiStatus.textContent = "✗ API key is invalid";
+        apiStatus.className = "api-status error";
+      }
+    } catch (error) {
+      apiStatus.textContent = "✗ Test failed";
+      apiStatus.className = "api-status error";
+    }
+  }
+
+  // Event listeners
+  settingsBtn.addEventListener('click', () => {
+    loadSettings();
+    settingsModal.style.display = 'block';
+  });
+
+  settingsClose.addEventListener('click', () => {
+    settingsModal.style.display = 'none';
+  });
+
+  cancelSettings.addEventListener('click', () => {
+    settingsModal.style.display = 'none';
+  });
+
+  saveSettings.addEventListener('click', () => {
+    saveSettingsToStorage();
+    settingsModal.style.display = 'none';
+    showNotification('Settings saved successfully!', 'success');
+  });
+
+  testApiKey.addEventListener('click', testApiKeyFunction);
+
+      // Toggle API key visibility
+      toggleApiKey.addEventListener('click', () => {
+        if (openaiKeyInput.type === 'password') {
+          openaiKeyInput.type = 'text';
+          toggleApiKey.textContent = '🙈';
+          toggleApiKey.title = 'Hide API Key';
+        } else {
+          openaiKeyInput.type = 'password';
+          toggleApiKey.textContent = '👁️';
+          toggleApiKey.title = 'Show API Key';
+        }
+      });
+
+      // Toggle additional key visibility
+      toggleAdditionalKey.addEventListener('click', () => {
+        if (additionalKeyInput.type === 'password') {
+          additionalKeyInput.type = 'text';
+          toggleAdditionalKey.textContent = '🙈';
+          toggleAdditionalKey.title = 'Hide Additional Key';
+        } else {
+          additionalKeyInput.type = 'password';
+          toggleAdditionalKey.textContent = '👁️';
+          toggleAdditionalKey.title = 'Show Additional Key';
+        }
+      });
+
+  // Close modal when clicking outside
+  settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) {
+      settingsModal.style.display = 'none';
+    }
+  });
+
+  // Load settings on page load
+  loadSettings();
+}
+
+// Delete project functionality
+function initDeleteProject() {
+  deleteProjectBtn.addEventListener('click', async () => {
+    if (!conversationId) {
+      showNotification('No project selected to delete', 'error');
+      return;
+    }
+
+    const projectName = document.getElementById("project_id")?.value || "current project";
+    
+    if (confirm(`Are you sure you want to delete "${projectName}" and all its conversations? This action cannot be undone.`)) {
+      try {
+        const response = await fetch(`/api/projects/${conversationId}`, {
+          method: 'DELETE'
+        });
+
+        if (response.ok) {
+          showNotification('Project deleted successfully', 'success');
+          // Reset to default project
+          conversationId = null;
+          document.getElementById("project_id").value = "";
+          loadProjects();
+          startConversation();
+        } else {
+          const error = await response.json();
+          showNotification(`Failed to delete project: ${error.error}`, 'error');
+        }
+      } catch (error) {
+        showNotification(`Error deleting project: ${error.message}`, 'error');
+      }
+    }
+  });
+}
+
 // Initialize theme and start conversation
 initTheme();
 initSidebar();
+initSettings();
+initDeleteProject();
 startConversation();

@@ -83,12 +83,8 @@ if __name__ == "__main__":
     # load the papers:
     df_papers = pd.read_csv("pubmed_results.csv")
 
-    lm = dspy.LM(
-            api_key=OPENAI_KEY,
-            model="gpt-4o-mini",
-            max_tokens=256
-            )
-    dspy.configure(lm=lm)
+    # Don't reconfigure DSPy - use the global configuration
+    # This avoids threading issues in Docker
 
     screener = Screener()
     decisions=[]

@@ -9,6 +9,36 @@ wheels/
 # Virtual environments
 .venv
 .env
-# datafile
+.env.local
+.env.*.local
+
+# API Keys and Secrets
+*.key
+*.pem
+*secret*
+*api_key*
+*openai*
+
+# Database files
 data/
 data/*.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore

@@ -24,19 +24,27 @@ class RAGSignature(dspy.Signature):
 class RAGAgent(dspy.Module):
     """RAG Agent that retrieves relevant papers and answers questions using DSPy."""
     
-    def __init__(self, vector_db_path: str = "data/rag_embeddings"):
+    def __init__(self, vector_db_path: str = "data/rag_embeddings", api_key: str = None):
         super().__init__()
         self.vector_db_path = Path(vector_db_path)
         self.vector_db_path.mkdir(parents=True, exist_ok=True)
         
-        # Configure DSPy with the correct API key
-        if OPENAI_KEY:
+        # Store the API key for use in operations
+        self.api_key = api_key if api_key else OPENAI_KEY
+        
+        # Configure DSPy with the API key if available
+        if self.api_key and self.api_key != "your_openai_api_key_here":
             # Set the environment variable for DSPy
-            os.environ["OPENAI_API_KEY"] = OPENAI_KEY
+            os.environ["OPENAI_API_KEY"] = self.api_key
             
-            # Configure DSPy with the language model
-            lm = dspy.LM(api_key=OPENAI_KEY, model="gpt-4o-mini", max_tokens=256)
-            dspy.configure(lm=lm)
+            # Import the safe configuration from orchestrator
+            try:
+                from .orchestrator import configure_dspy_safely
+                configure_dspy_safely(self.api_key)
+            except ImportError:
+                # Fallback if orchestrator not available
+                lm = dspy.LM(api_key=self.api_key, model="gpt-4o-mini", max_tokens=256)
+                dspy.configure(lm=lm)
         
         # Initialize DSPy embedder (using default dimensions for consistency)
         self.embedder = dspy.Embedder('openai/text-embedding-3-small')
