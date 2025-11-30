@@ -11,7 +11,10 @@ import dspy
 import pandas as pd
 
 from .keyword_exp import KeywordGeneratorProgram, SynonymGeneratorProgram, ConceptGenerator
-from .paper_finder import fetch_from_keywords, articles_fetchers, append_filters
+from .paper_finder import (
+    fetch_from_keywords, articles_fetchers, append_filters,
+    fetch_citations, fetch_cited_by, fetch_similar_papers, fetch_openalex_work_by_id
+)
 from .utils import parse_concepts
 from .screening import Screener, CoTScreener
 from db.connection import connect
@@ -107,20 +110,97 @@ def literature_review(query: str, project_id: int, n: int = 10, api_key: str = N
     print(f"DEBUG: Built query: {q}")
     # q = append_filters(q, english=True, humans=True, year_from=2015)
 
-    print("DEBUG: Fetching articles...")
-    df = articles_fetchers(q, n=n, include_citations=False)
-    print(f"DEBUG: Fetched {len(df)} articles")
+    print("DEBUG: Fetching articles from multiple sources...")
+    df = articles_fetchers(q, n=n, include_citations=False, sources=['pubmed', 'openalex'])
+    print(f"DEBUG: Fetched {len(df)} articles from PubMed and OpenAlex")
 
-    # STAGE 1: Basic screening to filter out obviously irrelevant papers
-    print("DEBUG: Starting Stage 1 - Basic screening...")
+    # Fetch citations and similar papers for ALL initial papers (before screening)
+    print("DEBUG: Fetching citations and similar papers for all initial papers...")
+    citation_dfs = []
+    similar_dfs = []
+    
+    for _, row in tqdm(df.iterrows(), desc="Fetching citations and similar papers", total=len(df)):
+        # Try to get OpenAlex ID from DOI, PMID, or PMCID
+        work_id = None
+        if "doi" in row and pd.notna(row["doi"]) and row["doi"]:
+            work_id = str(row["doi"])
+        elif "pmid" in row and pd.notna(row["pmid"]) and row["pmid"]:
+            work_id = str(row["pmid"])
+        elif "pmcid" in row and pd.notna(row["pmcid"]) and row["pmcid"]:
+            work_id = str(row["pmcid"])
+        
+        if not work_id:
+            continue
+        
+        try:
+            # Fetch backward citations (references)
+            citations_df = fetch_citations(work_id)
+            if not citations_df.empty:
+                citation_dfs.append(citations_df)
+            
+            # Fetch forward citations (cited by)
+            cited_by_df = fetch_cited_by(work_id)
+            if not cited_by_df.empty:
+                citation_dfs.append(cited_by_df)
+            
+            # Fetch similar papers
+            similar_df = fetch_similar_papers(work_id)
+            if not similar_df.empty:
+                similar_dfs.append(similar_df)
+        except Exception as e:
+            print(f"DEBUG: Error fetching citations/similar papers for {work_id}: {e}")
+            continue
+    
+    # Merge all citation and similar paper DataFrames
+    if citation_dfs:
+        citations_combined = pd.concat(citation_dfs, ignore_index=True)
+        citations_combined = citations_combined.drop_duplicates(
+            subset=['doi', 'pmid', 'pmcid'],
+            keep='first'
+        ).reset_index(drop=True)
+        print(f"DEBUG: Found {len(citations_combined)} unique citation papers")
+    else:
+        citations_combined = pd.DataFrame()
+    
+    if similar_dfs:
+        similar_combined = pd.concat(similar_dfs, ignore_index=True)
+        similar_combined = similar_combined.drop_duplicates(
+            subset=['doi', 'pmid', 'pmcid'],
+            keep='first'
+        ).reset_index(drop=True)
+        print(f"DEBUG: Found {len(similar_combined)} unique similar papers")
+    else:
+        similar_combined = pd.DataFrame()
+    
+    # Combine all papers: initial + citations + similar
+    all_papers_df = df.copy()
+    if not citations_combined.empty:
+        # Remove papers already in df using pandas drop_duplicates
+        all_papers_df = pd.concat([all_papers_df, citations_combined], ignore_index=True)
+        all_papers_df = all_papers_df.drop_duplicates(
+            subset=['doi', 'pmid', 'pmcid'],
+            keep='first'
+        ).reset_index(drop=True)
+    
+    if not similar_combined.empty:
+        # Remove papers already in all_papers_df
+        all_papers_df = pd.concat([all_papers_df, similar_combined], ignore_index=True)
+        all_papers_df = all_papers_df.drop_duplicates(
+            subset=['doi', 'pmid', 'pmcid'],
+            keep='first'
+        ).reset_index(drop=True)
+    
+    print(f"DEBUG: Total papers after adding citations/similar: {len(all_papers_df)} (initial: {len(df)})")
+    
+    # Now screen ALL papers together (initial + citations + similar)
+    print("DEBUG: Starting Stage 1 - Basic screening on all papers...")
     basic_decisions = []
-    for row in tqdm(df.itertuples(), desc="Basic screening"):
+    for row in tqdm(all_papers_df.itertuples(), desc="Basic screening"):
         title = row.title
         abstract = getattr(row, "abstract", "") or ""
         
         try:
             res = basic_screener(question=query, title=title, abstract=abstract)
-            print(f"DEBUG: Basic screener result: {res}")
             
             # Ensure the result has the expected keys
             if not isinstance(res, dict):
@@ -146,12 +226,12 @@ def literature_review(query: str, project_id: int, n: int = 10, api_key: str = N
     # Filter papers that passed basic screening (include or maybe)
     passed_papers = []
     passed_decisions = []
-    for i, (row, decision) in enumerate(zip(df.itertuples(), basic_decisions)):
+    for i, (row, decision) in enumerate(zip(all_papers_df.itertuples(), basic_decisions)):
         if decision["decision"] in ["include", "maybe"]:
             passed_papers.append(row)
             passed_decisions.append(decision)
     
-    print(f"DEBUG: Stage 1 complete. {len(passed_papers)} papers passed basic screening out of {len(df)}")
+    print(f"DEBUG: Stage 1 complete. {len(passed_papers)} papers passed basic screening out of {len(all_papers_df)}")
     
     # STAGE 2: Detailed PICO analysis with CoT screener for passed papers
     print("DEBUG: Starting Stage 2 - Detailed PICO analysis...")
@@ -162,7 +242,6 @@ def literature_review(query: str, project_id: int, n: int = 10, api_key: str = N
         
         try:
             res = cot_screener(question=query, title=title, abstract=abstract)
-            print(f"DEBUG: CoT screener result: {res}")
             
             # Ensure the result has the expected keys
             if not isinstance(res, dict):
@@ -184,24 +263,25 @@ def literature_review(query: str, project_id: int, n: int = 10, api_key: str = N
             "rationale": res.get("rationale", "No rationale provided")
         })
     
-    # Create final decisions list that matches the original df order
-    decisions = []
+    # Create final decisions list that matches the all_papers_df order
+    all_decisions = []
     passed_idx = 0
     for i, basic_decision in enumerate(basic_decisions):
         if basic_decision["decision"] in ["include", "maybe"]:
             # This paper went through CoT analysis
-            decisions.append(final_decisions[passed_idx])
+            all_decisions.append(final_decisions[passed_idx])
             passed_idx += 1
         else:
             # This paper was excluded in basic screening
-            decisions.append(basic_decision)
+            all_decisions.append(basic_decision)
     
-    print(f"DEBUG: Completed screening, {len(decisions)} decisions made")
-    print(f"DEBUG: Decisions sample: {decisions[:2] if decisions else 'No decisions'}")
-    print(f"DEBUG: DataFrame shape: {df.shape}")
-    print(f"DEBUG: DataFrame columns: {df.columns.tolist()}")
+    print(f"DEBUG: Completed screening, {len(all_decisions)} decisions made")
+    print(f"DEBUG: Decisions sample: {all_decisions[:2] if all_decisions else 'No decisions'}")
+    print(f"DEBUG: DataFrame shape: {all_papers_df.shape}")
+    print(f"DEBUG: DataFrame columns: {all_papers_df.columns.tolist()}")
+    
     print("DEBUG: Calling run_selection_and_save...")
-    result = run_selection_and_save(df, decisions, project_id)
+    result = run_selection_and_save(all_papers_df, all_decisions, project_id)
     
     # Update RAG embeddings with new papers
     print("DEBUG: Updating RAG embeddings...")

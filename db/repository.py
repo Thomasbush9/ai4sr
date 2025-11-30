@@ -113,9 +113,8 @@ def upsert_paper(con: sqlite3.Connection, project_id: int, paper: Dict) -> int:
     else:
         paper_id = row[0]
 
-    # Mirror into FTS
-    con.execute("DELETE FROM papers_fts WHERE rowid = ?", (paper_id,))
-    con.execute("INSERT INTO papers_fts(rowid, title, abstract) VALUES (?,?,?)",
+    # Mirror into FTS (use INSERT OR REPLACE since FTS5 doesn't support DELETE)
+    con.execute("INSERT OR REPLACE INTO papers_fts(rowid, title, abstract) VALUES (?,?,?)",
                 (paper_id, paper.get("title"), paper.get("abstract")))
     return paper_id
 
