@@ -159,7 +159,17 @@ class RAGAgent(dspy.Module):
         for paper in papers:
             paper_id = paper.get('id')
             if paper_id in existing_paper_ids:
-                print(f"DEBUG: Skipping duplicate paper ID {paper_id}")
+                # Update project_id in existing metadata if different
+                for i, meta in enumerate(self.metadata):
+                    if meta.get('paper_id') == paper_id:
+                        old_project_id = meta.get('project_id')
+                        if old_project_id != project_id:
+                            print(f"DEBUG: Updating project_id for paper {paper_id} from {old_project_id} to {project_id}")
+                            self.metadata[i]['project_id'] = project_id
+                            self._save_vector_db()
+                        else:
+                            print(f"DEBUG: Skipping duplicate paper ID {paper_id} (already in project {project_id})")
+                        break
                 continue
                 
             # Combine title and abstract for embedding
@@ -210,11 +220,23 @@ class RAGAgent(dspy.Module):
         for i, embedding in enumerate(self.embeddings):
             # Only consider papers from the same project (or all papers if project_id is 0)
             paper_project_id = self.metadata[i].get('project_id')
-            if project_id == 0 or paper_project_id == project_id:
+            # Convert to int for comparison (handle None and string cases)
+            try:
+                paper_project_id = int(paper_project_id) if paper_project_id is not None else None
+                project_id_int = int(project_id) if project_id is not None else None
+            except (ValueError, TypeError):
+                paper_project_id = None
+                project_id_int = None
+            
+            if project_id_int == 0 or paper_project_id == project_id_int:
                 similarity = self._cosine_similarity(question_embedding, embedding)
                 similarities.append((i, similarity))
         
-        print(f"DEBUG: Found {len(similarities)} papers matching project criteria")
+        print(f"DEBUG: Found {len(similarities)} papers matching project criteria (project_id={project_id}, total embeddings={len(self.embeddings)})")
+        if len(similarities) == 0 and len(self.embeddings) > 0:
+            # Debug: show project_ids in metadata
+            project_ids_in_metadata = [m.get('project_id') for m in self.metadata]
+            print(f"DEBUG: Project IDs in metadata: {set(project_ids_in_metadata)}")
         
         # Sort by similarity and get top_k
         similarities.sort(key=lambda x: x[1], reverse=True)

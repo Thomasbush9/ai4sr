@@ -118,6 +118,8 @@ def literature_review(query: str, project_id: int, n: int = 10, api_key: str = N
     print("DEBUG: Fetching citations and similar papers for all initial papers...")
     citation_dfs = []
     similar_dfs = []
+    papers_with_ids = 0
+    papers_without_ids = 0
     
     for _, row in tqdm(df.iterrows(), desc="Fetching citations and similar papers", total=len(df)):
         # Try to get OpenAlex ID from DOI, PMID, or PMCID
@@ -130,26 +132,33 @@ def literature_review(query: str, project_id: int, n: int = 10, api_key: str = N
             work_id = str(row["pmcid"])
         
         if not work_id:
+            papers_without_ids += 1
             continue
         
+        papers_with_ids += 1
         try:
             # Fetch backward citations (references)
             citations_df = fetch_citations(work_id)
             if not citations_df.empty:
                 citation_dfs.append(citations_df)
+                print(f"DEBUG: Fetched {len(citations_df)} backward citations for {work_id}")
             
             # Fetch forward citations (cited by)
             cited_by_df = fetch_cited_by(work_id)
             if not cited_by_df.empty:
                 citation_dfs.append(cited_by_df)
+                print(f"DEBUG: Fetched {len(cited_by_df)} forward citations for {work_id}")
             
             # Fetch similar papers
             similar_df = fetch_similar_papers(work_id)
             if not similar_df.empty:
                 similar_dfs.append(similar_df)
+                print(f"DEBUG: Fetched {len(similar_df)} similar papers for {work_id}")
         except Exception as e:
             print(f"DEBUG: Error fetching citations/similar papers for {work_id}: {e}")
             continue
+    
+    print(f"DEBUG: Papers with valid IDs: {papers_with_ids}, without IDs: {papers_without_ids}")
     
     # Merge all citation and similar paper DataFrames
     if citation_dfs:
@@ -174,23 +183,33 @@ def literature_review(query: str, project_id: int, n: int = 10, api_key: str = N
     
     # Combine all papers: initial + citations + similar
     all_papers_df = df.copy()
+    initial_count = len(all_papers_df)
+    
     if not citations_combined.empty:
+        print(f"DEBUG: Adding {len(citations_combined)} citation papers to {initial_count} initial papers")
         # Remove papers already in df using pandas drop_duplicates
         all_papers_df = pd.concat([all_papers_df, citations_combined], ignore_index=True)
+        before_dedup = len(all_papers_df)
         all_papers_df = all_papers_df.drop_duplicates(
             subset=['doi', 'pmid', 'pmcid'],
             keep='first'
         ).reset_index(drop=True)
+        after_dedup = len(all_papers_df)
+        print(f"DEBUG: After citation deduplication: {before_dedup} -> {after_dedup} papers")
     
     if not similar_combined.empty:
+        print(f"DEBUG: Adding {len(similar_combined)} similar papers to {len(all_papers_df)} papers")
         # Remove papers already in all_papers_df
+        before_dedup = len(all_papers_df)
         all_papers_df = pd.concat([all_papers_df, similar_combined], ignore_index=True)
         all_papers_df = all_papers_df.drop_duplicates(
             subset=['doi', 'pmid', 'pmcid'],
             keep='first'
         ).reset_index(drop=True)
+        after_dedup = len(all_papers_df)
+        print(f"DEBUG: After similar deduplication: {before_dedup} -> {after_dedup} papers")
     
-    print(f"DEBUG: Total papers after adding citations/similar: {len(all_papers_df)} (initial: {len(df)})")
+    print(f"DEBUG: Total papers after adding citations/similar: {len(all_papers_df)} (initial: {initial_count}, added: {len(all_papers_df) - initial_count})")
     
     # Now screen ALL papers together (initial + citations + similar)
     print("DEBUG: Starting Stage 1 - Basic screening on all papers...")
