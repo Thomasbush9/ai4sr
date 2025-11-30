@@ -151,7 +151,9 @@ def bulk_ingest_from_dfs(
 
             pubmed_url = row.get("pubmed_url")
             doi_url    = row.get("doi_url")
-            url        = doi_url or pubmed_url
+            openalex_url = row.get("openalex_url")
+            # Use openalex_url in url field if no doi_url or pubmed_url
+            url        = doi_url or pubmed_url or openalex_url
         except Exception as e:
             print(f"DEBUG: Error processing row {i}: {e}")
             print(f"DEBUG: Row data: {dict(row)}")

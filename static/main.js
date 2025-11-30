@@ -120,10 +120,17 @@ function addPaperTable(papers) {
     if (paper.pubmed_url) {
       links.push(`<a href="${escapeHtml(paper.pubmed_url)}" target="_blank" class="link-btn pubmed-link">PubMed</a>`);
     }
+    if (paper.openalex_url) {
+      links.push(`<a href="${escapeHtml(paper.openalex_url)}" target="_blank" class="link-btn openalex-link">OpenAlex</a>`);
+    }
+    // Check if url is an OpenAlex URL (for papers stored with openalex_url in url field)
+    if (paper.url && paper.url.includes("openalex.org") && !paper.openalex_url) {
+      links.push(`<a href="${escapeHtml(paper.url)}" target="_blank" class="link-btn openalex-link">OpenAlex</a>`);
+    }
     if (paper.pdf_path) {
       links.push(`<a href="${escapeHtml(paper.pdf_path)}" target="_blank" class="link-btn pdf-link">PDF</a>`);
     }
-    if (paper.url && !paper.doi_url && !paper.pubmed_url) {
+    if (paper.url && !paper.doi_url && !paper.pubmed_url && !paper.openalex_url && !paper.url.includes("openalex.org")) {
       links.push(`<a href="${escapeHtml(paper.url)}" target="_blank" class="link-btn url-link">Link</a>`);
     }
     

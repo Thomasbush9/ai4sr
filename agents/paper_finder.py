@@ -374,6 +374,8 @@ def _fetch_pubmed(query: str, n: int, include_citations: bool) -> pd.DataFrame:
     fetch = PubMedFetcher()
     pmids = fetch.pmids_for_query(query, retmax=n) or []
     pmids = list(dict.fromkeys(pmids))
+    
+    print(f"DEBUG: PubMed found {len(pmids)} PMIDs for query")
 
     records = []
     for pmid in tqdm(pmids, desc="Fetching PubMed records"):
@@ -411,19 +413,29 @@ def _fetch_pubmed(query: str, n: int, include_citations: bool) -> pd.DataFrame:
         "pmid","pmcid","title","abstract","year","authors","journal","volume","issue",
         "doi","pubmed_url","doi_url","citations_crossref"
     ])
+    print(f"DEBUG: PubMed successfully fetched {len(df)} records")
     return df
 
 def _fetch_openalex_simple(query: str, n: int) -> pd.DataFrame:
-    """Fetch papers from OpenAlex and return in standard format (without OpenAlex-specific fields)."""
+    """Fetch papers from OpenAlex and return in standard format."""
     df = fetch_openalex_works(query, n)
     if df.empty:
+        print(f"DEBUG: OpenAlex returned 0 results for query: {query}")
         return df
     
-    # Remove OpenAlex-specific columns for consistency
-    cols_to_drop = ["openalex_id", "referenced_works", "cited_by_api_url", "related_works"]
+    print(f"DEBUG: OpenAlex returned {len(df)} results")
+    
+    # Keep openalex_id for tracking, but remove other OpenAlex-specific fields
+    cols_to_drop = ["referenced_works", "cited_by_api_url", "related_works"]
     for col in cols_to_drop:
         if col in df.columns:
             df = df.drop(columns=[col])
+    
+    # Add openalex_url for papers that have openalex_id
+    if "openalex_id" in df.columns:
+        df["openalex_url"] = df["openalex_id"].apply(
+            lambda x: f"https://openalex.org/{x.split('/')[-1]}" if x and pd.notna(x) else None
+        )
     
     return df
 
@@ -480,7 +492,12 @@ def articles_fetchers(
             try:
                 df = future.result()
                 if not df.empty:
+                    print(f"DEBUG: {source.capitalize()} returned {len(df)} papers")
+                    # Add source column to track origin
+                    df["source"] = source
                     dfs.append(df)
+                else:
+                    print(f"DEBUG: {source.capitalize()} returned 0 papers")
             except Exception as e:
                 print(f"Error getting results from {source}: {e}")
     
@@ -488,17 +505,41 @@ def articles_fetchers(
     if not dfs:
         df = pd.DataFrame(columns=[
             "pmid","pmcid","title","abstract","year","authors","journal","volume","issue",
-            "doi","pubmed_url","doi_url","citations_crossref"
+            "doi","pubmed_url","doi_url","citations_crossref","source","openalex_url"
         ])
     else:
         df = pd.concat(dfs, ignore_index=True)
         
+        # Count papers by source before deduplication
+        if "source" in df.columns:
+            source_counts = df["source"].value_counts()
+            print(f"DEBUG: Papers by source before deduplication: {dict(source_counts)}")
+        
         # Deduplicate based on DOI, PMID, or PMCID
-        # Keep first occurrence
+        # Keep first occurrence (which will be PubMed if both sources have the same paper)
+        before_dedup = len(df)
         df = df.drop_duplicates(
             subset=['doi', 'pmid', 'pmcid'],
             keep='first'
         ).reset_index(drop=True)
+        after_dedup = len(df)
+        print(f"DEBUG: Deduplication: {before_dedup} -> {after_dedup} papers (removed {before_dedup - after_dedup} duplicates)")
+        
+        # Count papers by source after deduplication
+        if "source" in df.columns:
+            source_counts = df["source"].value_counts()
+            print(f"DEBUG: Papers by source after deduplication: {dict(source_counts)}")
+        
+        # Set url field to openalex_url if no doi_url or pubmed_url
+        if "openalex_url" in df.columns:
+            df["url"] = df.apply(
+                lambda row: row.get("openalex_url") 
+                if pd.notna(row.get("openalex_url")) 
+                and not pd.notna(row.get("doi_url")) 
+                and not pd.notna(row.get("pubmed_url"))
+                else (row.get("url") if "url" in row else None),
+                axis=1
+            )
         
         # Limit to requested number
         if len(df) > n:
