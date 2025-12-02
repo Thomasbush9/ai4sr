@@ -715,11 +715,8 @@ async function loadProject(projectId, projectName) {
     document.getElementById('project_id').value = projectName;
     document.getElementById('pico-project-id').value = projectName;
     
-    // Load PICO data if in PICO mode
-    const currentMode = document.querySelector('input[name="mod"]:checked')?.value;
-    if (currentMode === 'pico') {
-      await loadPicoData(projectId);
-    }
+    // Always load PICO data if available (regardless of current mode)
+    await loadPicoData(projectId);
     
     // Clear current chat
     chat.innerHTML = '';
@@ -1344,10 +1341,49 @@ function initPicoMode() {
   }
 }
 
+// Database viewer button handler
+function initDbViewer() {
+  const dbViewerBtn = document.getElementById('db-viewer');
+  if (dbViewerBtn) {
+    dbViewerBtn.addEventListener('click', async () => {
+      // Get current project ID from active project in sidebar
+      const activeProject = document.querySelector('.project-item.active');
+      let projectId = null;
+      
+      if (activeProject) {
+        projectId = activeProject.dataset.projectId;
+      } else {
+        // Try to get project ID from project name by looking up in projects list
+        const projectName = document.getElementById('project_id')?.value?.trim();
+        if (projectName && projectName !== 'default') {
+          try {
+            const response = await fetch('/api/projects');
+            const projects = await response.json();
+            const project = projects.find(p => p.name === projectName);
+            if (project) {
+              projectId = project.id;
+            }
+          } catch (e) {
+            console.error('Error getting project ID:', e);
+          }
+        }
+      }
+      
+      let url = '/api/db-viewer';
+      if (projectId) {
+        url += '?project_id=' + projectId;
+      }
+      
+      window.open(url, '_blank');
+    });
+  }
+}
+
 // Initialize theme and start conversation
 initTheme();
 initSidebar();
 initSettings();
 initDeleteProject();
 initPicoMode();
+initDbViewer();
 startConversation();

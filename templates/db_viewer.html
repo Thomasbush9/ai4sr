@@ -1,0 +1,270 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Papers Viewer - AI4SR</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #f5f5f5;
+      padding: 20px;
+      color: #333;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    .header {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      margin-bottom: 10px;
+      color: #2c3e50;
+    }
+    .project-info {
+      color: #666;
+      font-size: 0.9em;
+    }
+    .papers-section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .papers-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 15px;
+      border-bottom: 2px solid #e0e0e0;
+    }
+    .papers-count {
+      color: #666;
+      font-size: 0.9em;
+    }
+    .papers-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9em;
+    }
+    .papers-table th {
+      background: #f8f9fa;
+      padding: 12px;
+      text-align: left;
+      font-weight: 600;
+      border-bottom: 2px solid #dee2e6;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .papers-table td {
+      padding: 12px;
+      border-bottom: 1px solid #e9ecef;
+      vertical-align: top;
+    }
+    .papers-table tbody tr:hover {
+      background: #f8f9fa;
+    }
+    .title-cell {
+      font-weight: 500;
+      color: #2c3e50;
+      max-width: 300px;
+    }
+    .authors-cell {
+      max-width: 200px;
+      color: #495057;
+    }
+    .abstract-cell {
+      max-width: 400px;
+      color: #6c757d;
+      line-height: 1.5;
+    }
+    .status-cell {
+      text-align: center;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 0.85em;
+      font-weight: 600;
+    }
+    .status-UNSCREENED {
+      background: #fff3cd;
+      color: #856404;
+    }
+    .status-include {
+      background: #d4edda;
+      color: #155724;
+    }
+    .status-maybe {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+    .year-cell, .venue-cell {
+      color: #6c757d;
+      font-size: 0.9em;
+    }
+    .doi-cell {
+      font-size: 0.85em;
+      color: #007bff;
+      max-width: 150px;
+      word-break: break-all;
+    }
+    .pagination {
+      margin-top: 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+    }
+    .load-more-btn {
+      padding: 10px 20px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9em;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    .load-more-btn:hover {
+      background: #0056b3;
+    }
+    .load-more-btn:disabled {
+      background: #6c757d;
+      cursor: not-allowed;
+    }
+    .page-info {
+      color: #666;
+      font-size: 0.9em;
+    }
+    .empty {
+      padding: 40px;
+      text-align: center;
+      color: #999;
+    }
+    .truncate {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📊 Papers Viewer</h1>
+      {% if project_name %}
+      <div class="project-info">Project: <strong>{{ project_name }}</strong> (ID: {{ project_id }})</div>
+      {% else %}
+      <div class="project-info">All Projects</div>
+      {% endif %}
+    </div>
+    
+    <div class="papers-section">
+      <div class="papers-header">
+        <h2>Papers</h2>
+        <div class="papers-count">{{ total_count }} paper{{ 's' if total_count != 1 else '' }}</div>
+      </div>
+      
+      {% if papers %}
+      <table class="papers-table">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Authors</th>
+            <th>Year</th>
+            <th>Venue</th>
+            <th>Abstract</th>
+            <th>Status</th>
+            <th>DOI</th>
+            {% if not project_id %}
+            <th>Project</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for paper in papers %}
+          <tr>
+            <td class="title-cell">{{ paper.title or '—' }}</td>
+            <td class="authors-cell">{{ paper.authors or '—' }}</td>
+            <td class="year-cell">{{ paper.year or '—' }}</td>
+            <td class="venue-cell">{{ paper.venue or '—' }}</td>
+            <td class="abstract-cell">
+              {% if paper.abstract %}
+                <div class="truncate">{{ paper.abstract }}</div>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td class="status-cell">
+              <span class="status-badge status-{{ paper.status }}">
+                {{ paper.status }}
+              </span>
+            </td>
+            <td class="doi-cell">
+              {% if paper.doi %}
+                <a href="https://doi.org/{{ paper.doi }}" target="_blank">{{ paper.doi }}</a>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            {% if not project_id %}
+            <td>{{ paper.project_name or '—' }}</td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      
+      <div class="pagination">
+        <div class="page-info">
+          Showing {{ papers|length }} of {{ total_count }} papers
+          {% if page > 1 %}
+          (Page {{ page }})
+          {% endif %}
+        </div>
+        {% if has_more %}
+        <button class="load-more-btn" onclick="loadMore()">Load More (Next 100)</button>
+        {% endif %}
+      </div>
+      {% else %}
+      <div class="empty">No papers found{% if project_id %} for this project{% endif %}.</div>
+      {% endif %}
+    </div>
+  </div>
+  
+  <script>
+    const currentPage = {{ page }};
+    const projectId = {{ project_id if project_id else 'null' }};
+    const hasMore = {{ 'true' if has_more else 'false' }};
+    
+    function loadMore() {
+      if (!hasMore) return;
+      
+      const nextPage = currentPage + 1;
+      let url = '/api/db-viewer?page=' + nextPage;
+      if (projectId) {
+        url += '&project_id=' + projectId;
+      }
+      
+      window.location.href = url;
+    }
+  </script>
+</body>
+</html>

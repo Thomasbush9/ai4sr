@@ -1,5 +1,5 @@
 # webapp/routes.py
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, render_template
 from datetime import datetime
 from webapp.db import get_db
 from agents.orchestrator import literature_review, rag_answer
@@ -465,4 +465,83 @@ def generate_project_corpus(project_id):
         
     except Exception as e:
         return jsonify({"error": str(e), "status": "failed"}), 500
+
+
+@api_bp.route("/db-viewer")
+def db_viewer():
+    """Display papers for a specific project."""
+    try:
+        project_id = request.args.get('project_id', type=int)
+        page = request.args.get('page', 1, type=int)
+        limit = 100
+        offset = (page - 1) * limit
+        
+        with get_db() as db:
+            # Get project name if project_id is provided
+            project_name = None
+            if project_id:
+                project_row = db.execute(
+                    "SELECT name FROM projects WHERE id = ?", (project_id,)
+                ).fetchone()
+                if project_row:
+                    project_name = project_row['name']
+            
+            # Build query for papers
+            if project_id:
+                count_query = "SELECT COUNT(*) as count FROM papers WHERE project_id = ?"
+                papers_query = """
+                    SELECT id, title, authors, abstract, year, venue, doi, status, 
+                           added_at, pmid, pmcid
+                    FROM papers 
+                    WHERE project_id = ?
+                    ORDER BY added_at DESC
+                    LIMIT ? OFFSET ?
+                """
+                count_row = db.execute(count_query, (project_id,)).fetchone()
+                papers_result = db.execute(papers_query, (project_id, limit, offset)).fetchall()
+            else:
+                # If no project_id, show all papers
+                count_query = "SELECT COUNT(*) as count FROM papers"
+                papers_query = """
+                    SELECT id, title, authors, abstract, year, venue, doi, status, 
+                           added_at, pmid, pmcid, project_id
+                    FROM papers 
+                    ORDER BY added_at DESC
+                    LIMIT ? OFFSET ?
+                """
+                count_row = db.execute(count_query).fetchone()
+                papers_result = db.execute(papers_query, (limit, offset)).fetchall()
+            
+            total_count = count_row['count'] if count_row else 0
+            papers = [dict(row) for row in papers_result]
+            
+            # Get project names for all papers if showing all
+            if not project_id and papers:
+                project_ids = [p.get('project_id') for p in papers if p.get('project_id')]
+                if project_ids:
+                    projects_result = db.execute(
+                        "SELECT id, name FROM projects WHERE id IN ({})".format(
+                            ','.join(['?'] * len(project_ids))
+                        ),
+                        project_ids
+                    ).fetchall()
+                    project_map = {p['id']: p['name'] for p in projects_result}
+                    for paper in papers:
+                        if paper.get('project_id'):
+                            paper['project_name'] = project_map.get(paper['project_id'], 'Unknown')
+            
+            has_more = total_count > (offset + limit)
+            
+            return render_template('db_viewer.html', 
+                                 papers=papers,
+                                 project_id=project_id,
+                                 project_name=project_name,
+                                 total_count=total_count,
+                                 page=page,
+                                 has_more=has_more,
+                                 limit=limit)
+            
+    except Exception as e:
+        import traceback
+        return f"Error loading database: {str(e)}<br><pre>{traceback.format_exc()}</pre>", 500
 
