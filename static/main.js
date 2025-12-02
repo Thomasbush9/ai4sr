@@ -472,22 +472,40 @@ function updateInputSection() {
   const mod = document.querySelector('input[name="mod"]:checked').value;
   const standardSection = document.getElementById("standard-input-section");
   const picoSection = document.getElementById("pico-input-section");
+  const screeningSection = document.getElementById("screening-input-section");
   
   if (mod === "pico") {
     standardSection.style.display = "none";
     picoSection.style.display = "block";
+    screeningSection.style.display = "none";
     // Sync project ID
     const projectId = document.getElementById("project_id")?.value || "";
     if (projectId) {
       document.getElementById("pico-project-id").value = projectId;
     }
+  } else if (mod === "screening") {
+    standardSection.style.display = "none";
+    picoSection.style.display = "none";
+    screeningSection.style.display = "block";
+    // Sync project ID
+    const projectId = document.getElementById("project_id")?.value || 
+                     document.getElementById("pico-project-id")?.value || "";
+    if (projectId) {
+      document.getElementById("screening-project-id").value = projectId;
+    }
+    // Initialize screening mode
+    initScreeningMode();
   } else {
     standardSection.style.display = "block";
     picoSection.style.display = "none";
+    screeningSection.style.display = "none";
     // Sync project ID
     const picoProjectId = document.getElementById("pico-project-id")?.value || "";
+    const screeningProjectId = document.getElementById("screening-project-id")?.value || "";
     if (picoProjectId) {
       document.getElementById("project_id").value = picoProjectId;
+    } else if (screeningProjectId) {
+      document.getElementById("project_id").value = screeningProjectId;
     }
   }
 }
@@ -497,8 +515,8 @@ async function sendMessage() {
   if (!text || !conversationId) return;
 
   const mod = document.querySelector('input[name="mod"]:checked').value;
-  if (mod === "pico") {
-    // PICO mode uses separate handlers
+  if (mod === "pico" || mod === "screening") {
+    // PICO and Screening modes use separate handlers
     return;
   }
 
@@ -1376,6 +1394,348 @@ function initDbViewer() {
       
       window.open(url, '_blank');
     });
+  }
+}
+
+// ==================== Screening Mode Functions ====================
+
+let currentBatch = [];
+let paperDecisions = {}; // Map of paper_id -> action ('INCLUDE', 'EXCLUDE', 'SKIP')
+let screeningProjectId = null;
+
+// Initialize screening mode
+function initScreeningMode() {
+  const startBtn = document.getElementById('start-screening');
+  const submitBtn = document.getElementById('submit-batch');
+  const finalReviewBtn = document.getElementById('final-review-button');
+  
+  if (startBtn) {
+    startBtn.addEventListener('click', async () => {
+      const projectInput = document.getElementById('screening-project-id');
+      const projectName = projectInput?.value?.trim();
+      if (!projectName) {
+        updateScreeningStatus('Please enter a project name', 'error');
+        return;
+      }
+      
+      try {
+        const projectId = await getOrCreateProject(projectName);
+        screeningProjectId = projectId;
+        await startScreening(projectId);
+      } catch (error) {
+        updateScreeningStatus(`Error: ${error.message}`, 'error');
+      }
+    });
+  }
+  
+  if (submitBtn) {
+    submitBtn.addEventListener('click', async () => {
+      if (!screeningProjectId) return;
+      await submitBatch(screeningProjectId);
+    });
+  }
+  
+  if (finalReviewBtn) {
+    finalReviewBtn.addEventListener('click', () => {
+      // TODO: Implement final review action
+      alert('Final review feature coming soon!');
+    });
+  }
+  
+  // Keyboard shortcuts
+  document.addEventListener('keydown', (e) => {
+    if (document.querySelector('input[name="mod"]:checked')?.value !== 'screening') return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    
+    if (e.key === 'i' || e.key === 'I') {
+      e.preventDefault();
+      const firstUnlabeled = document.querySelector('.paper-card:not([data-decision])');
+      if (firstUnlabeled) {
+        const paperId = parseInt(firstUnlabeled.dataset.paperId);
+        handlePaperAction(paperId, 'INCLUDE');
+      }
+    } else if (e.key === 'e' || e.key === 'E') {
+      e.preventDefault();
+      const firstUnlabeled = document.querySelector('.paper-card:not([data-decision])');
+      if (firstUnlabeled) {
+        const paperId = parseInt(firstUnlabeled.dataset.paperId);
+        handlePaperAction(paperId, 'EXCLUDE');
+      }
+    } else if (e.key === 's' || e.key === 'S') {
+      e.preventDefault();
+      const firstUnlabeled = document.querySelector('.paper-card:not([data-decision])');
+      if (firstUnlabeled) {
+        const paperId = parseInt(firstUnlabeled.dataset.paperId);
+        handlePaperAction(paperId, 'SKIP');
+      }
+    }
+  });
+}
+
+// Start screening session
+async function startScreening(projectId) {
+  document.getElementById('start-screening').disabled = true;
+  updateScreeningStatus('Loading papers...', 'info');
+  
+  // Show progress bar
+  document.getElementById('screening-progress').style.display = 'block';
+  
+  // Load initial stats
+  await updateProgress(projectId);
+  
+  // Load first batch
+  await loadScreeningBatch(projectId);
+}
+
+// Load screening batch
+async function loadScreeningBatch(projectId) {
+  try {
+    updateScreeningStatus('Fetching next batch...', 'info');
+    
+    const response = await fetch(`/api/projects/${projectId}/screening/next?batch_size=10&strategy=relevance&classifier=random_forest`);
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to fetch papers');
+    }
+    
+    const data = await response.json();
+    currentBatch = data.papers || [];
+    
+    if (currentBatch.length === 0) {
+      // Check if all papers are labeled
+      await checkCompletion(projectId);
+      return;
+    }
+    
+    renderPaperCards(currentBatch);
+    document.getElementById('papers-container').style.display = 'block';
+    document.getElementById('screening-actions').style.display = 'block';
+    
+    // Update message
+    const stats = await fetchScreeningStats(projectId);
+    if (stats.unlabeled_count > 0) {
+      updateScreeningMessage(`${stats.unlabeled_count} papers remaining to review`);
+      if (stats.labeled_count >= 10) {
+        updateScreeningMessage(`${stats.unlabeled_count} papers remaining. Model improving as you label.`);
+      }
+    }
+    
+    updateScreeningStatus('', '');
+    
+  } catch (error) {
+    updateScreeningStatus(`Error: ${error.message}`, 'error');
+    console.error('Error loading batch:', error);
+  }
+}
+
+// Render paper cards
+function renderPaperCards(papers) {
+  const container = document.getElementById('papers-container');
+  container.innerHTML = '';
+  paperDecisions = {}; // Reset decisions for new batch
+  
+  papers.forEach((paper, index) => {
+    const card = renderPaperCard(paper, index);
+    container.appendChild(card);
+  });
+}
+
+// Render single paper card
+function renderPaperCard(paper, index) {
+  const card = document.createElement('div');
+  card.className = 'paper-card';
+  card.dataset.paperId = paper.id;
+  
+  const prob = paper.predicted_probability;
+  const probBadge = prob !== null && prob !== undefined
+    ? `<span class="prob-badge ${prob > 0.5 ? 'prob-include' : 'prob-exclude'}">${(prob * 100).toFixed(0)}% relevant</span>`
+    : '';
+  
+  const source = paper.venue || paper.source || 'Unknown';
+  const year = paper.year || 'N/A';
+  
+  card.innerHTML = `
+    <div class="paper-card-header">
+      <span class="paper-index">#${index + 1}</span>
+      ${probBadge}
+    </div>
+    <h4 class="paper-title">${escapeHtml(paper.title || 'No title')}</h4>
+    <div class="paper-meta">
+      <span class="paper-source">${escapeHtml(source)}</span>
+      <span class="paper-year">${year}</span>
+    </div>
+    <div class="paper-abstract">${escapeHtml(paper.abstract || 'No abstract available')}</div>
+    <div class="paper-actions">
+      <button class="paper-action-btn action-include" data-action="INCLUDE" data-paper-id="${paper.id}">
+        ✅ Include
+      </button>
+      <button class="paper-action-btn action-exclude" data-action="EXCLUDE" data-paper-id="${paper.id}">
+        ❌ Exclude
+      </button>
+      <button class="paper-action-btn action-skip" data-action="SKIP" data-paper-id="${paper.id}">
+        ⏭️ Skip
+      </button>
+    </div>
+  `;
+  
+  // Add event listeners
+  card.querySelectorAll('.paper-action-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const paperId = parseInt(btn.dataset.paperId);
+      const action = btn.dataset.action;
+      handlePaperAction(paperId, action);
+    });
+  });
+  
+  return card;
+}
+
+// Handle paper action
+function handlePaperAction(paperId, action) {
+  paperDecisions[paperId] = action;
+  
+  // Update card visual state
+  const card = document.querySelector(`.paper-card[data-paper-id="${paperId}"]`);
+  if (card) {
+    card.dataset.decision = action;
+    card.classList.add(`decision-${action.toLowerCase()}`);
+    
+    // Update button states
+    card.querySelectorAll('.paper-action-btn').forEach(btn => {
+      if (btn.dataset.action === action) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+  }
+  
+  // Enable submit button if any decisions made
+  const hasDecisions = Object.keys(paperDecisions).length > 0;
+  document.getElementById('submit-batch').disabled = !hasDecisions;
+}
+
+// Submit batch
+async function submitBatch(projectId) {
+  const submitBtn = document.getElementById('submit-batch');
+  submitBtn.disabled = true;
+  submitBtn.textContent = '💾 Submitting...';
+  
+  try {
+    // Prepare labels (skip SKIP decisions)
+    const labels = Object.entries(paperDecisions)
+      .filter(([_, action]) => action !== 'SKIP')
+      .map(([paperId, action]) => ({
+        paper_id: parseInt(paperId),
+        label: action
+      }));
+    
+    if (labels.length === 0) {
+      updateScreeningStatus('No labels to submit. Use Skip to leave papers unlabeled.', 'warning');
+      submitBtn.disabled = false;
+      submitBtn.textContent = '💾 Submit Batch';
+      return;
+    }
+    
+    const response = await fetch(`/api/projects/${projectId}/screening/label`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ labels })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to save labels');
+    }
+    
+    const data = await response.json();
+    updateScreeningStatus(`✓ Saved ${data.saved} labels`, 'success');
+    
+    // Clear current batch
+    currentBatch = [];
+    paperDecisions = {};
+    document.getElementById('papers-container').innerHTML = '';
+    
+    // Update progress
+    await updateProgress(projectId);
+    
+    // Auto-fetch next batch
+    setTimeout(async () => {
+      await loadScreeningBatch(projectId);
+    }, 500);
+    
+  } catch (error) {
+    updateScreeningStatus(`Error: ${error.message}`, 'error');
+    console.error('Error submitting batch:', error);
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = '💾 Submit Batch';
+  }
+}
+
+// Update progress bar
+async function updateProgress(projectId) {
+  try {
+    const stats = await fetchScreeningStats(projectId);
+    
+    const progressBar = document.getElementById('progress-bar-fill');
+    const progressLabeled = document.getElementById('progress-labeled');
+    const progressTotal = document.getElementById('progress-total');
+    
+    const percentage = stats.total_papers > 0 
+      ? (stats.labeled_count / stats.total_papers) * 100 
+      : 0;
+    
+    progressBar.style.width = `${percentage}%`;
+    progressLabeled.textContent = stats.labeled_count;
+    progressTotal.textContent = stats.total_papers;
+    
+  } catch (error) {
+    console.error('Error updating progress:', error);
+  }
+}
+
+// Fetch screening stats
+async function fetchScreeningStats(projectId) {
+  const response = await fetch(`/api/projects/${projectId}/screening/stats`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch stats');
+  }
+  return await response.json();
+}
+
+// Check completion
+async function checkCompletion(projectId) {
+  try {
+    const stats = await fetchScreeningStats(projectId);
+    
+    if (stats.unlabeled_count === 0 && stats.total_papers > 0) {
+      // All papers labeled
+      document.getElementById('papers-container').style.display = 'none';
+      document.getElementById('screening-actions').style.display = 'none';
+      document.getElementById('completion-state').style.display = 'block';
+      updateScreeningStatus('All papers have been reviewed!', 'success');
+    }
+  } catch (error) {
+    console.error('Error checking completion:', error);
+  }
+}
+
+// Update screening status message
+function updateScreeningStatus(message, type) {
+  const statusEl = document.getElementById('screening-status');
+  if (!statusEl) return;
+  
+  statusEl.textContent = message;
+  statusEl.className = `screening-status ${type}`;
+}
+
+// Update screening message (below progress bar)
+function updateScreeningMessage(message) {
+  const messageEl = document.getElementById('screening-message');
+  if (messageEl) {
+    messageEl.textContent = message;
   }
 }
 

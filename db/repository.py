@@ -424,3 +424,115 @@ def save_ingestion_log(con: sqlite3.Connection, project_id: int, log_data: Dict)
     
     return cur.lastrowid
 
+# ---------- screening labels functions ----------
+def get_labeled_papers(con: sqlite3.Connection, project_id: int) -> List[Dict]:
+    """Get all papers that have been labeled for screening. Returns list of dicts with paper_id, title, abstract, label."""
+    cur = con.execute("""
+        SELECT p.id as paper_id, p.title, p.abstract, sl.label
+        FROM papers p
+        INNER JOIN screening_labels sl ON p.id = sl.paper_id
+        WHERE p.project_id = ? AND sl.project_id = ?
+        ORDER BY sl.timestamp DESC
+    """, (project_id, project_id))
+    cols = [c[0] for c in cur.description]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+def get_unlabeled_papers(con: sqlite3.Connection, project_id: int, limit: Optional[int] = None) -> List[Dict]:
+    """Get papers that have not been labeled yet. Returns list of dicts with paper_id, title, abstract, venue, year."""
+    query = """
+        SELECT p.id as paper_id, p.title, p.abstract, p.venue, p.year
+        FROM papers p
+        LEFT JOIN screening_labels sl ON p.id = sl.paper_id AND sl.project_id = ?
+        WHERE p.project_id = ? AND sl.id IS NULL
+        ORDER BY p.added_at DESC
+    """
+    if limit is not None:
+        query += f" LIMIT {limit}"
+    
+    cur = con.execute(query, (project_id, project_id))
+    cols = [c[0] for c in cur.description]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+def save_screening_labels(con: sqlite3.Connection, project_id: int, labels: Dict[int, str]) -> Dict[str, int]:
+    """
+    Save screening labels for papers. Updates both screening_labels table and papers.status.
+    
+    Args:
+        con: Database connection
+        project_id: Project ID
+        labels: Dict mapping paper_id -> label ("INCLUDE" or "EXCLUDE")
+    
+    Returns:
+        Dict with 'saved' (number of labels saved) and 'updated_papers' (number of papers status updated)
+    """
+    now = datetime.utcnow().isoformat()
+    saved = 0
+    updated_papers = 0
+    
+    for paper_id, label in labels.items():
+        # Validate label
+        if label not in ("INCLUDE", "EXCLUDE"):
+            continue
+        
+        # Insert or replace label (handles UNIQUE constraint)
+        con.execute("""
+            INSERT OR REPLACE INTO screening_labels (project_id, paper_id, label, timestamp)
+            VALUES (?, ?, ?, ?)
+        """, (project_id, paper_id, label, now))
+        saved += 1
+        
+        # Update papers.status
+        # INCLUDE -> 'include', EXCLUDE -> 'excluded'
+        new_status = "include" if label == "INCLUDE" else "excluded"
+        cur = con.execute("""
+            UPDATE papers
+            SET status = ?
+            WHERE id = ? AND project_id = ?
+        """, (new_status, paper_id, project_id))
+        
+        if cur.rowcount > 0:
+            updated_papers += 1
+    
+    return {"saved": saved, "updated_papers": updated_papers}
+
+def get_screening_stats(con: sqlite3.Connection, project_id: int) -> Dict[str, int]:
+    """
+    Get screening statistics for a project.
+    
+    Returns:
+        Dict with total_papers, labeled_count, unlabeled_count, included_count, excluded_count
+    """
+    # Get total papers count
+    cur = con.execute("SELECT COUNT(*) FROM papers WHERE project_id = ?", (project_id,))
+    total_papers = cur.fetchone()[0]
+    
+    # Get labeled papers count
+    cur = con.execute("""
+        SELECT COUNT(DISTINCT sl.paper_id)
+        FROM screening_labels sl
+        WHERE sl.project_id = ?
+    """, (project_id,))
+    labeled_count = cur.fetchone()[0]
+    
+    # Get included/excluded counts
+    cur = con.execute("""
+        SELECT 
+            SUM(CASE WHEN sl.label = 'INCLUDE' THEN 1 ELSE 0 END) as included_count,
+            SUM(CASE WHEN sl.label = 'EXCLUDE' THEN 1 ELSE 0 END) as excluded_count
+        FROM screening_labels sl
+        WHERE sl.project_id = ?
+    """, (project_id,))
+    row = cur.fetchone()
+    included_count = row[0] if row[0] else 0
+    excluded_count = row[1] if row[1] else 0
+    
+    unlabeled_count = total_papers - labeled_count
+    
+    return {
+        "total_papers": total_papers,
+        "labeled_count": labeled_count,
+        "unlabeled_count": unlabeled_count,
+        "included_count": included_count,
+        "excluded_count": excluded_count
+    }
+

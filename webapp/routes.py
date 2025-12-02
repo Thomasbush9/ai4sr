@@ -467,6 +467,106 @@ def generate_project_corpus(project_id):
         return jsonify({"error": str(e), "status": "failed"}), 500
 
 
+@api_bp.get("/projects/<int:project_id>/screening/next")
+def get_next_screening_batch(project_id):
+    """Get next batch of papers to label using active learning."""
+    try:
+        from agents.screener import get_next_batch
+        
+        batch_size = request.args.get('batch_size', 10, type=int)
+        strategy = request.args.get('strategy', 'relevance', type=str)
+        classifier_type = request.args.get('classifier', 'random_forest', type=str)
+        
+        # Validate strategy
+        if strategy not in ('relevance', 'uncertainty'):
+            return jsonify({"error": "strategy must be 'relevance' or 'uncertainty'"}), 400
+        
+        # Validate classifier_type
+        if classifier_type not in ('logistic', 'svm', 'random_forest', 'naive_bayes'):
+            return jsonify({"error": "classifier must be 'logistic', 'svm', 'random_forest', or 'naive_bayes'"}), 400
+        
+        # Validate batch_size
+        batch_size = max(1, min(100, batch_size))  # Clamp between 1 and 100
+        
+        # Get next batch
+        papers = get_next_batch(project_id, batch_size=batch_size, strategy=strategy, classifier_type=classifier_type)
+        
+        return jsonify({"papers": papers})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.post("/projects/<int:project_id>/screening/label")
+def save_screening_labels_endpoint(project_id):
+    """Save screening labels for papers."""
+    try:
+        from db.repository import save_screening_labels
+        from agents.screener import clear_model_cache
+        from webapp.db import get_db
+        
+        data = request.get_json(force=True) if request.is_json else {}
+        
+        if "labels" not in data:
+            return jsonify({"error": "labels field is required"}), 400
+        
+        labels_list = data["labels"]
+        if not isinstance(labels_list, list):
+            return jsonify({"error": "labels must be a list"}), 400
+        
+        # Convert list of dicts to dict mapping paper_id -> label
+        labels_dict = {}
+        for item in labels_list:
+            if not isinstance(item, dict):
+                continue
+            paper_id = item.get("paper_id")
+            label = item.get("label")
+            
+            if paper_id is None or label is None:
+                continue
+            
+            # Validate label
+            if label not in ("INCLUDE", "EXCLUDE"):
+                continue
+            
+            labels_dict[int(paper_id)] = label
+        
+        if not labels_dict:
+            return jsonify({"error": "No valid labels provided"}), 400
+        
+        # Save labels
+        with get_db() as db:
+            result = save_screening_labels(db, project_id, labels_dict)
+            db.commit()
+        
+        # Clear model cache for this project to force retraining
+        clear_model_cache(project_id)
+        
+        return jsonify({
+            "saved": result["saved"],
+            "updated_papers": result["updated_papers"]
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.get("/projects/<int:project_id>/screening/stats")
+def get_screening_stats_endpoint(project_id):
+    """Get screening statistics for a project."""
+    try:
+        from db.repository import get_screening_stats
+        from webapp.db import get_db
+        
+        with get_db() as db:
+            stats = get_screening_stats(db, project_id)
+        
+        return jsonify(stats)
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @api_bp.route("/db-viewer")
 def db_viewer():
     """Display papers for a specific project."""

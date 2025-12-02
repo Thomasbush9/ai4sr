@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS papers (
   pdf_path      TEXT,
 
   -- screening outcome
-  status        TEXT NOT NULL CHECK (status IN ('include','maybe','UNSCREENED')),
+  status        TEXT NOT NULL CHECK (status IN ('include','maybe','UNSCREENED','excluded')),
   score         INTEGER CHECK (score BETWEEN 0 AND 100),
   rationale     TEXT,          -- optional explanation
 
@@ -118,3 +118,16 @@ CREATE TABLE IF NOT EXISTS review_ingestion_logs (
 
 CREATE INDEX IF NOT EXISTS idx_ingestion_logs_project ON review_ingestion_logs(project_id);
 
+-- Screening labels table for active learning
+CREATE TABLE IF NOT EXISTS screening_labels (
+  id            INTEGER PRIMARY KEY,
+  project_id    INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  paper_id      INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+  label         TEXT NOT NULL CHECK (label IN ('INCLUDE','EXCLUDE')),
+  timestamp     TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(project_id, paper_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_screening_labels_project ON screening_labels(project_id);
+CREATE INDEX IF NOT EXISTS idx_screening_labels_paper ON screening_labels(paper_id);
+CREATE INDEX IF NOT EXISTS idx_screening_labels_project_paper ON screening_labels(project_id, paper_id);

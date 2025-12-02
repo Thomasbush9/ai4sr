@@ -42,6 +42,13 @@
                 <span class="tab-text">PICO Review</span>
               </span>
             </label>
+            <label class="mode-tab">
+              <input type="radio" name="mod" value="screening">
+              <span class="tab-content">
+                <span class="tab-icon">✅</span>
+                <span class="tab-text">Screening</span>
+              </span>
+            </label>
           </div>
         </div>
         
@@ -173,6 +180,51 @@
               <button id="generate-corpus" class="pico-button pico-button-success" disabled>📚 Generate Corpus</button>
             </div>
             <div id="pico-status" class="pico-status"></div>
+          </div>
+        </div>
+
+        <!-- Screening input section (for Screening mode) -->
+        <div id="screening-input-section" class="input-section screening-section" style="display: none;">
+          <div class="input-controls">
+            <div class="control-group">
+              <label for="screening-project-id" class="control-label">Project</label>
+              <input id="screening-project-id" type="text" placeholder="Enter project name or ID" class="control-input project-input" />
+            </div>
+          </div>
+          
+          <div class="screening-workspace">
+            <div class="screening-header">
+              <button id="start-screening" class="screening-button screening-button-primary">▶️ Start Screening</button>
+              <div id="screening-status" class="screening-status"></div>
+            </div>
+            
+            <div id="screening-progress" class="screening-progress" style="display: none;">
+              <div class="progress-bar-container">
+                <div class="progress-bar">
+                  <div id="progress-bar-fill" class="progress-bar-fill"></div>
+                </div>
+                <div class="progress-text">
+                  <span id="progress-labeled">0</span> / <span id="progress-total">0</span> papers labeled
+                </div>
+              </div>
+              <div id="screening-message" class="screening-message"></div>
+            </div>
+            
+            <div id="papers-container" class="papers-container" style="display: none;">
+              <!-- Paper cards will be inserted here -->
+            </div>
+            
+            <div id="screening-actions" class="screening-actions" style="display: none;">
+              <button id="submit-batch" class="screening-button screening-button-submit" disabled>💾 Submit Batch</button>
+            </div>
+            
+            <div id="completion-state" class="completion-state" style="display: none;">
+              <div class="completion-message">
+                <h3>🎉 Screening Completed!</h3>
+                <p>All papers have been reviewed and labeled.</p>
+              </div>
+              <button id="final-review-button" class="screening-button screening-button-primary">📊 Send Included Papers to Final Agent Review</button>
+            </div>
           </div>
         </div>
       </div>
