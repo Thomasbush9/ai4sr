@@ -1500,6 +1500,13 @@ async function loadScreeningBatch(projectId) {
     }
     
     const data = await response.json();
+    
+    // Check if screening is done
+    if (data.done === true) {
+      await showCompletionState(projectId);
+      return;
+    }
+    
     currentBatch = data.papers || [];
     
     if (currentBatch.length === 0) {
@@ -1514,10 +1521,10 @@ async function loadScreeningBatch(projectId) {
     
     // Update message
     const stats = await fetchScreeningStats(projectId);
-    if (stats.unlabeled_count > 0) {
-      updateScreeningMessage(`${stats.unlabeled_count} papers remaining to review`);
-      if (stats.labeled_count >= 10) {
-        updateScreeningMessage(`${stats.unlabeled_count} papers remaining. Model improving as you label.`);
+    if (stats.n_unlabeled > 0) {
+      updateScreeningMessage(`${stats.n_unlabeled} papers remaining to review`);
+      if (stats.n_labeled >= 10) {
+        updateScreeningMessage(`${stats.n_unlabeled} papers remaining. Model improving as you label.`);
       }
     }
     
@@ -1682,14 +1689,24 @@ async function updateProgress(projectId) {
     const progressBar = document.getElementById('progress-bar-fill');
     const progressLabeled = document.getElementById('progress-labeled');
     const progressTotal = document.getElementById('progress-total');
+    const counterLabeled = document.getElementById('counter-labeled');
+    const counterTotal = document.getElementById('counter-total');
+    const counterIncluded = document.getElementById('counter-included');
+    const counterExcluded = document.getElementById('counter-excluded');
     
-    const percentage = stats.total_papers > 0 
-      ? (stats.labeled_count / stats.total_papers) * 100 
+    const percentage = stats.n_total_corpus > 0 
+      ? (stats.n_labeled / stats.n_total_corpus) * 100 
       : 0;
     
     progressBar.style.width = `${percentage}%`;
-    progressLabeled.textContent = stats.labeled_count;
-    progressTotal.textContent = stats.total_papers;
+    progressLabeled.textContent = stats.n_labeled;
+    progressTotal.textContent = stats.n_total_corpus;
+    
+    // Update counters
+    if (counterLabeled) counterLabeled.textContent = stats.n_labeled;
+    if (counterTotal) counterTotal.textContent = stats.n_total_corpus;
+    if (counterIncluded) counterIncluded.textContent = stats.n_included || 0;
+    if (counterExcluded) counterExcluded.textContent = stats.n_excluded || 0;
     
   } catch (error) {
     console.error('Error updating progress:', error);
@@ -1698,7 +1715,7 @@ async function updateProgress(projectId) {
 
 // Fetch screening stats
 async function fetchScreeningStats(projectId) {
-  const response = await fetch(`/api/projects/${projectId}/screening/stats`);
+  const response = await fetch(`/api/projects/${projectId}/screening/status`);
   if (!response.ok) {
     throw new Error('Failed to fetch stats');
   }
@@ -1710,15 +1727,38 @@ async function checkCompletion(projectId) {
   try {
     const stats = await fetchScreeningStats(projectId);
     
-    if (stats.unlabeled_count === 0 && stats.total_papers > 0) {
-      // All papers labeled
-      document.getElementById('papers-container').style.display = 'none';
-      document.getElementById('screening-actions').style.display = 'none';
-      document.getElementById('completion-state').style.display = 'block';
-      updateScreeningStatus('All papers have been reviewed!', 'success');
+    if (stats.n_unlabeled === 0 && stats.n_total_corpus > 0) {
+      await showCompletionState(projectId);
     }
   } catch (error) {
     console.error('Error checking completion:', error);
+  }
+}
+
+// Show completion state
+async function showCompletionState(projectId) {
+  try {
+    const stats = await fetchScreeningStats(projectId);
+    
+    // Hide batch area
+    document.getElementById('papers-container').style.display = 'none';
+    document.getElementById('screening-actions').style.display = 'none';
+    document.getElementById('completion-state').style.display = 'block';
+    
+    // Update completion message with included count
+    const completionMessage = document.querySelector('#completion-state .completion-message p');
+    if (completionMessage) {
+      if (stats.n_unlabeled === 0) {
+        completionMessage.textContent = `All papers have been reviewed. ${stats.n_included} papers included.`;
+      } else {
+        completionMessage.textContent = `Screening complete. ${stats.n_included} papers included. ${stats.n_unlabeled} papers remaining unlabeled (stopping rules triggered).`;
+      }
+    }
+    
+    updateScreeningStatus('Screening complete!', 'success');
+    await updateProgress(projectId); // Update progress one last time
+  } catch (error) {
+    console.error('Error showing completion state:', error);
   }
 }
 

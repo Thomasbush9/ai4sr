@@ -2145,6 +2145,25 @@ body {
   color: var(--text-secondary);
 }
 
+.screening-counters {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-6);
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.counter-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.counter-item strong {
+  color: var(--text-primary);
+}
+
 .screening-message {
   text-align: center;
   font-size: var(--font-size-sm);

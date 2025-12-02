@@ -528,11 +528,62 @@ def get_screening_stats(con: sqlite3.Connection, project_id: int) -> Dict[str, i
     
     unlabeled_count = total_papers - labeled_count
     
+    # Get last batch timestamp
+    cur = con.execute("""
+        SELECT MAX(sl.timestamp) as last_batch_timestamp
+        FROM screening_labels sl
+        WHERE sl.project_id = ?
+    """, (project_id,))
+    row = cur.fetchone()
+    last_batch_timestamp = row[0] if row and row[0] else None
+    
+    # Estimate recent batches (optional - simplified)
+    n_recent_batches = 0  # Can be enhanced later if needed
+    
     return {
-        "total_papers": total_papers,
-        "labeled_count": labeled_count,
-        "unlabeled_count": unlabeled_count,
-        "included_count": included_count,
-        "excluded_count": excluded_count
+        "n_total_corpus": total_papers,
+        "n_labeled": labeled_count,
+        "n_unlabeled": unlabeled_count,
+        "n_included": included_count,
+        "n_excluded": excluded_count,
+        "n_recent_batches": n_recent_batches,
+        "last_batch_timestamp": last_batch_timestamp
+    }
+
+def get_recent_batch_statistics(con: sqlite3.Connection, project_id: int, batch_count: int = 5) -> Dict:
+    """
+    Get statistics for the most recent batches to detect low yield.
+    
+    Args:
+        con: Database connection
+        project_id: Project ID
+        batch_count: Number of recent batches to analyze
+    
+    Returns:
+        Dict with include_rate, total_papers_in_batches, included_in_batches
+    """
+    # Get most recent batch timestamps (assuming batches are submitted at once)
+    # We'll look at papers labeled in the most recent time periods
+    cur = con.execute("""
+        SELECT sl.label, sl.timestamp
+        FROM screening_labels sl
+        WHERE sl.project_id = ?
+        ORDER BY sl.timestamp DESC
+        LIMIT ?
+    """, (project_id, batch_count * 20))  # Assume up to 20 papers per batch
+    
+    rows = cur.fetchall()
+    if not rows:
+        return {"include_rate": 0.0, "total_papers_in_batches": 0, "included_in_batches": 0}
+    
+    # Count includes in recent papers
+    total = len(rows)
+    included = sum(1 for row in rows if row[0] == "INCLUDE")
+    include_rate = included / total if total > 0 else 0.0
+    
+    return {
+        "include_rate": include_rate,
+        "total_papers_in_batches": total,
+        "included_in_batches": included
     }
 

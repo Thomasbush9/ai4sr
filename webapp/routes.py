@@ -491,7 +491,16 @@ def get_next_screening_batch(project_id):
         # Get next batch
         papers = get_next_batch(project_id, batch_size=batch_size, strategy=strategy, classifier_type=classifier_type)
         
-        return jsonify({"papers": papers})
+        # Check if stopping rules triggered (empty papers list)
+        from agents.screener import should_stop_screening
+        if not papers and should_stop_screening(project_id):
+            return jsonify({
+                "project_id": project_id,
+                "done": True,
+                "papers": []
+            })
+        
+        return jsonify({"papers": papers, "done": False})
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -565,6 +574,12 @@ def get_screening_stats_endpoint(project_id):
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@api_bp.get("/projects/<int:project_id>/screening/status")
+def get_screening_status_endpoint(project_id):
+    """Get screening status for a project (alias for /stats with same response)."""
+    return get_screening_stats_endpoint(project_id)
 
 
 @api_bp.route("/db-viewer")

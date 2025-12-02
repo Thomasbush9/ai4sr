@@ -15,13 +15,19 @@ from sklearn.pipeline import Pipeline
 from sklearn.calibration import CalibratedClassifierCV
 
 from db.connection import connect
-from db.repository import get_labeled_papers, get_unlabeled_papers
+from db.repository import get_labeled_papers, get_unlabeled_papers, get_screening_stats, get_recent_batch_statistics
 
 
 # Model cache per project_id
 _model_cache: Dict[int, Optional[Pipeline]] = {}
 _tfidf_cache: Dict[int, Optional[TfidfVectorizer]] = {}
 COLD_START_THRESHOLD = 10  # Minimum labeled papers before active learning
+
+# Stopping rule thresholds
+MIN_UNLABELED_THRESHOLD = 50  # Rule A: stop when fewer than N unlabeled papers remain
+LOW_YIELD_BATCH_COUNT = 5  # Rule B: check last N batches
+LOW_YIELD_BATCH_SIZE = 20  # Rule B: assume batch size for calculations
+LOW_YIELD_RATE_THRESHOLD = 0.02  # Rule B: stop if include rate < 2%
 
 # Default classifier type
 DEFAULT_CLASSIFIER = "random_forest"  # Options: "logistic", "svm", "random_forest", "naive_bayes"
@@ -161,6 +167,10 @@ def get_next_batch(
         List of dicts with keys: id, title, abstract, predicted_probability
     """
     with connect() as con:
+        # Check stopping rules first
+        if should_stop_screening(project_id):
+            return []  # Empty list signals completion (will be wrapped with done=true in API)
+        
         # Get labeled papers to check if we have enough for active learning
         labeled = get_labeled_papers(con, project_id)
         
@@ -263,4 +273,37 @@ def clear_model_cache(project_id: Optional[int] = None):
         _model_cache.clear()
     else:
         _model_cache.pop(project_id, None)
+
+
+def should_stop_screening(project_id: int) -> bool:
+    """
+    Check if screening should stop based on stopping rules.
+    
+    Rule A - Min Coverage: Stop when n_unlabeled < threshold (default: 50)
+    Rule B - Low Yield: Stop if include rate in last K batches < threshold (default: 2%)
+    
+    Args:
+        project_id: Project ID
+    
+    Returns:
+        True if screening should stop, False otherwise
+    """
+    with connect() as con:
+        # Get current statistics
+        stats = get_screening_stats(con, project_id)
+        n_unlabeled = stats.get("n_unlabeled", 0)
+        
+        # Rule A: Min Coverage
+        if n_unlabeled < MIN_UNLABELED_THRESHOLD:
+            return True
+        
+        # Rule B: Low Yield (only check if we have enough labels)
+        if stats.get("n_labeled", 0) >= LOW_YIELD_BATCH_COUNT * LOW_YIELD_BATCH_SIZE:
+            batch_stats = get_recent_batch_statistics(con, project_id, batch_count=LOW_YIELD_BATCH_COUNT)
+            include_rate = batch_stats.get("include_rate", 1.0)
+            
+            if include_rate < LOW_YIELD_RATE_THRESHOLD:
+                return True
+        
+        return False
 
