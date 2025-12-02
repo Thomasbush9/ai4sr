@@ -45,8 +45,17 @@ function addMessage(role, text, mode = null) {
   // Add mode indicator for assistant messages
   let modeIndicator = '';
   if (role === 'assistant' && currentMode) {
-    const modeIcon = currentMode === 'literature' ? '🔍' : '💬';
-    const modeName = currentMode === 'literature' ? 'Literature Review' : 'RAG Chat';
+    let modeIcon, modeName;
+    if (currentMode === 'literature') {
+      modeIcon = '🔍';
+      modeName = 'Literature Review';
+    } else if (currentMode === 'pico') {
+      modeIcon = '📋';
+      modeName = 'PICO Review';
+    } else {
+      modeIcon = '💬';
+      modeName = 'RAG Chat';
+    }
     modeIndicator = `<div class="mode-indicator">${modeIcon} ${modeName}</div>`;
   }
   
@@ -77,8 +86,17 @@ function addPaperTable(papers) {
   
   const timestamp = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
   const currentMode = document.querySelector('input[name="mod"]:checked').value;
-  const modeIcon = currentMode === 'literature' ? '🔍' : '💬';
-  const modeName = currentMode === 'literature' ? 'Literature Review' : 'RAG Chat';
+  let modeIcon, modeName;
+  if (currentMode === 'literature') {
+    modeIcon = '🔍';
+    modeName = 'Literature Review';
+  } else if (currentMode === 'pico') {
+    modeIcon = '📋';
+    modeName = 'PICO Review';
+  } else {
+    modeIcon = '💬';
+    modeName = 'RAG Chat';
+  }
   
   let tableHTML = `
     <div class="bubble">
@@ -414,7 +432,11 @@ async function startConversation() {
     conversationId = data.conversation_id;
   }
   
-  convMeta.textContent = `Session #${conversationId} · ${mod === 'literature' ? 'Literature Review' : 'RAG Chat'}`;
+  let modeName;
+  if (mod === 'literature') modeName = 'Literature Review';
+  else if (mod === 'pico') modeName = 'PICO Review';
+  else modeName = 'RAG Chat';
+  convMeta.textContent = `Session #${conversationId} · ${modeName}`;
   
   // Show/hide delete button based on whether we have a project
   if (conversationId && projectName !== "default") {
@@ -430,12 +452,43 @@ async function startConversation() {
   if (chat.children.length === 0) {
     if (mod === 'literature') {
       addMessage("assistant", `🔍 **Literature Review Mode Active**\n\nI can help you:\n• Find relevant papers for your research topic\n• Analyze and summarize research findings\n• Generate comprehensive literature reviews\n• Screen papers based on your criteria\n\nWhat research question or topic would you like me to explore?`, mod);
+    } else if (mod === 'pico') {
+      addMessage("assistant", `📋 **PICO Review Mode Active**\n\nSystematic review workflow:\n1. Fill in the PICO framework below\n2. Click "Save PICO" to store your review question\n3. Click "Expand PICO" to generate search queries\n4. Click "Generate Corpus" to fetch papers from PubMed and OpenAlex\n\nStart by entering your Population (required) and other PICO components.`, mod);
     } else {
       addMessage("assistant", `💬 **RAG Chat Mode Active**\n\nI can help you:\n• Answer questions about your existing documents\n• Search through your uploaded papers\n• Provide insights from your research collection\n\nWhat would you like to know about your documents?`, mod);
     }
   } else {
     // Add mode switch notification
-    addMessage("assistant", `Mode switched to **${mod === 'literature' ? 'Literature Review' : 'RAG Chat'}**. How can I help you?`, mod);
+    let modeName;
+    if (mod === 'literature') modeName = 'Literature Review';
+    else if (mod === 'pico') modeName = 'PICO Review';
+    else modeName = 'RAG Chat';
+    addMessage("assistant", `Mode switched to **${modeName}**. How can I help you?`, mod);
+  }
+}
+
+// Show/hide input sections based on mode
+function updateInputSection() {
+  const mod = document.querySelector('input[name="mod"]:checked').value;
+  const standardSection = document.getElementById("standard-input-section");
+  const picoSection = document.getElementById("pico-input-section");
+  
+  if (mod === "pico") {
+    standardSection.style.display = "none";
+    picoSection.style.display = "block";
+    // Sync project ID
+    const projectId = document.getElementById("project_id")?.value || "";
+    if (projectId) {
+      document.getElementById("pico-project-id").value = projectId;
+    }
+  } else {
+    standardSection.style.display = "block";
+    picoSection.style.display = "none";
+    // Sync project ID
+    const picoProjectId = document.getElementById("pico-project-id")?.value || "";
+    if (picoProjectId) {
+      document.getElementById("project_id").value = picoProjectId;
+    }
   }
 }
 
@@ -444,6 +497,11 @@ async function sendMessage() {
   if (!text || !conversationId) return;
 
   const mod = document.querySelector('input[name="mod"]:checked').value;
+  if (mod === "pico") {
+    // PICO mode uses separate handlers
+    return;
+  }
+
   const pid = (document.getElementById("project_id")?.value || "").trim();
   const paperLimit = Math.max(1, Math.min(50, parseInt(document.getElementById("paper_limit")?.value || "10")));
 
@@ -519,7 +577,26 @@ async function sendMessage() {
 
 
 document.querySelectorAll('input[name="mod"]').forEach(r => {
-  r.addEventListener("change", startConversation);
+  r.addEventListener("change", async () => {
+    updateInputSection();
+    
+    // If switching to PICO mode, load PICO data for current project
+    if (r.value === 'pico') {
+      const projectName = document.getElementById('pico-project-id')?.value?.trim() || 
+                         document.getElementById('project_id')?.value?.trim();
+      if (projectName) {
+        try {
+          const projectId = await getOrCreateProject(projectName);
+          await loadPicoData(projectId);
+        } catch (e) {
+          // Project doesn't exist or error loading - clear form
+          clearPicoForm();
+        }
+      }
+    }
+    
+    startConversation();
+  });
 });
 sendBtn.addEventListener("click", sendMessage);
 exportBtn.addEventListener("click", exportChatHistory);
@@ -636,6 +713,13 @@ async function loadProject(projectId, projectName) {
   try {
     // Set the project name in the input field
     document.getElementById('project_id').value = projectName;
+    document.getElementById('pico-project-id').value = projectName;
+    
+    // Load PICO data if in PICO mode
+    const currentMode = document.querySelector('input[name="mod"]:checked')?.value;
+    if (currentMode === 'pico') {
+      await loadPicoData(projectId);
+    }
     
     // Clear current chat
     chat.innerHTML = '';
@@ -962,9 +1046,308 @@ function initDeleteProject() {
   });
 }
 
+// PICO Mode Functions
+function updatePicoStatus(message, type = 'info') {
+  const statusEl = document.getElementById('pico-status');
+  if (!statusEl) return;
+  
+  statusEl.textContent = message;
+  statusEl.className = `pico-status pico-status-${type}`;
+  
+  if (type === 'success' || type === 'error') {
+    setTimeout(() => {
+      statusEl.textContent = '';
+      statusEl.className = 'pico-status';
+    }, 5000);
+  }
+}
+
+async function getOrCreateProject(projectName) {
+  if (!projectName) {
+    throw new Error('Project name is required');
+  }
+  
+  const res = await fetch('/api/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_name: projectName })
+  });
+  
+  if (!res.ok) {
+    throw new Error('Failed to create/get project');
+  }
+  
+  const data = await res.json();
+  return data.project_id;
+}
+
+async function savePico() {
+  const projectIdInput = document.getElementById('pico-project-id');
+  const projectName = projectIdInput?.value.trim();
+  
+  if (!projectName) {
+    updatePicoStatus('Please enter a project name', 'error');
+    return;
+  }
+  
+  const population = document.getElementById('pico-population')?.value.trim();
+  if (!population) {
+    updatePicoStatus('Population is required', 'error');
+    return;
+  }
+  
+  const intervention = document.getElementById('pico-intervention')?.value.trim() || null;
+  const comparison = document.getElementById('pico-comparison')?.value.trim() || null;
+  const outcome = document.getElementById('pico-outcome')?.value.trim() || null;
+  const studyDesign = document.getElementById('pico-study-design')?.value.trim() || null;
+  const extraTermsStr = document.getElementById('pico-extra-terms')?.value.trim() || '';
+  const extraTerms = extraTermsStr ? extraTermsStr.split(',').map(t => t.trim()).filter(t => t) : null;
+  
+  try {
+    updatePicoStatus('Saving PICO...', 'info');
+    const projectId = await getOrCreateProject(projectName);
+    
+    const res = await fetch(`/api/projects/${projectId}/pico`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        population,
+        intervention,
+        comparison,
+        outcome,
+        study_design: studyDesign,
+        extra_terms: extraTerms
+      })
+    });
+    
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Failed to save PICO');
+    }
+    
+    updatePicoStatus('PICO saved successfully!', 'success');
+    document.getElementById('expand-pico').disabled = false;
+    addMessage('assistant', '✅ **PICO Saved**\n\nYour PICO framework has been saved. You can now expand it to generate search queries.', 'pico');
+    
+    // Reload PICO data to ensure form is in sync
+    await loadPicoData(projectId);
+  } catch (error) {
+    updatePicoStatus(`Error: ${error.message}`, 'error');
+    addMessage('assistant', `❌ **Error saving PICO**\n\n${error.message}`, 'pico');
+  }
+}
+
+async function expandPico() {
+  const projectIdInput = document.getElementById('pico-project-id');
+  const projectName = projectIdInput?.value.trim();
+  
+  if (!projectName) {
+    updatePicoStatus('Please enter a project name', 'error');
+    return;
+  }
+  
+  try {
+    updatePicoStatus('Expanding PICO... This may take a moment.', 'info');
+    const projectId = await getOrCreateProject(projectName);
+    const apiKey = localStorage.getItem('openai_api_key');
+    
+    const res = await fetch(`/api/projects/${projectId}/expand-pico`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: apiKey || undefined })
+    });
+    
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Failed to expand PICO');
+    }
+    
+    const data = await res.json();
+    updatePicoStatus('PICO expanded successfully!', 'success');
+    document.getElementById('generate-corpus').disabled = false;
+    
+    let message = '✅ **PICO Expanded**\n\n';
+    message += `**Question Summary:**\n${data.question_summary}\n\n`;
+    message += `**PubMed Query:**\n\`${data.pubmed_query}\`\n\n`;
+    message += `**OpenAlex Query:**\n\`${data.openalex_query}\`\n\n`;
+    message += 'You can now generate the corpus.';
+    addMessage('assistant', message, 'pico');
+  } catch (error) {
+    updatePicoStatus(`Error: ${error.message}`, 'error');
+    addMessage('assistant', `❌ **Error expanding PICO**\n\n${error.message}`, 'pico');
+  }
+}
+
+async function generateCorpus() {
+  const projectIdInput = document.getElementById('pico-project-id');
+  const projectName = projectIdInput?.value.trim();
+  
+  if (!projectName) {
+    updatePicoStatus('Please enter a project name', 'error');
+    return;
+  }
+  
+  try {
+    updatePicoStatus('Generating corpus... This may take several minutes.', 'info');
+    const projectId = await getOrCreateProject(projectName);
+    const apiKey = localStorage.getItem('openai_api_key');
+    
+    // Show loading message
+    addMessage('assistant', '⏳ **Generating Corpus**\n\nFetching papers from PubMed and OpenAlex. This may take a few minutes...', 'pico');
+    
+    const res = await fetch(`/api/projects/${projectId}/generate-corpus`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: apiKey || undefined })
+    });
+    
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Failed to generate corpus');
+    }
+    
+    const data = await res.json();
+    updatePicoStatus('Corpus generated successfully!', 'success');
+    
+    let message = '✅ **Corpus Generated**\n\n';
+    message += `**PubMed:** ${data.sources.pubmed.fetched} fetched, ${data.sources.pubmed.unique} unique\n`;
+    message += `**OpenAlex:** ${data.sources.openalex.fetched} fetched, ${data.sources.openalex.unique} unique\n`;
+    message += `**Total Unique Papers:** ${data.total_unique}\n`;
+    message += `**Inserted:** ${data.inserted_count} papers with status UNSCREENED\n\n`;
+    message += 'Papers are now available in your project for screening.';
+    
+    addMessage('assistant', message, 'pico');
+  } catch (error) {
+    updatePicoStatus(`Error: ${error.message}`, 'error');
+    addMessage('assistant', `❌ **Error generating corpus**\n\n${error.message}`, 'pico');
+  }
+}
+
+// Load PICO data for a project
+async function loadPicoData(projectId) {
+  try {
+    const res = await fetch(`/api/projects/${projectId}/pico`);
+    
+    if (res.ok) {
+      const pico = await res.json();
+      
+      // Populate form fields
+      document.getElementById('pico-population').value = pico.population || '';
+      document.getElementById('pico-intervention').value = pico.intervention || '';
+      document.getElementById('pico-comparison').value = pico.comparison || '';
+      document.getElementById('pico-outcome').value = pico.outcome || '';
+      document.getElementById('pico-study-design').value = pico.study_design || '';
+      
+      // Handle extra_terms (array to comma-separated string)
+      if (pico.extra_terms && Array.isArray(pico.extra_terms)) {
+        document.getElementById('pico-extra-terms').value = pico.extra_terms.join(', ');
+      } else if (pico.extra_terms) {
+        document.getElementById('pico-extra-terms').value = pico.extra_terms;
+      } else {
+        document.getElementById('pico-extra-terms').value = '';
+      }
+      
+      // Enable expand button since PICO is saved
+      document.getElementById('expand-pico').disabled = false;
+      
+      // Check if expansion exists and enable generate corpus button
+      try {
+        const expansionRes = await fetch(`/api/projects/${projectId}/queries`);
+        if (expansionRes.ok) {
+          document.getElementById('generate-corpus').disabled = false;
+        }
+      } catch (e) {
+        // Expansion doesn't exist yet, that's fine
+      }
+    } else if (res.status === 404) {
+      // No PICO saved yet - clear form and disable buttons
+      clearPicoForm();
+    }
+  } catch (error) {
+    console.error('Error loading PICO:', error);
+    // Don't show error to user - just leave form empty
+  }
+}
+
+// Clear PICO form
+function clearPicoForm() {
+  document.getElementById('pico-population').value = '';
+  document.getElementById('pico-intervention').value = '';
+  document.getElementById('pico-comparison').value = '';
+  document.getElementById('pico-outcome').value = '';
+  document.getElementById('pico-study-design').value = '';
+  document.getElementById('pico-extra-terms').value = '';
+  document.getElementById('expand-pico').disabled = true;
+  document.getElementById('generate-corpus').disabled = true;
+}
+
+// Initialize PICO mode
+function initPicoMode() {
+  updateInputSection();
+  
+  // PICO button handlers
+  const savePicoBtn = document.getElementById('save-pico');
+  const expandPicoBtn = document.getElementById('expand-pico');
+  const generateCorpusBtn = document.getElementById('generate-corpus');
+  
+  if (savePicoBtn) {
+    savePicoBtn.addEventListener('click', savePico);
+  }
+  if (expandPicoBtn) {
+    expandPicoBtn.addEventListener('click', expandPico);
+  }
+  if (generateCorpusBtn) {
+    generateCorpusBtn.addEventListener('click', generateCorpus);
+  }
+  
+  // Sync project IDs when switching modes
+  const projectIdInput = document.getElementById('project_id');
+  const picoProjectIdInput = document.getElementById('pico-project-id');
+  
+  if (projectIdInput && picoProjectIdInput) {
+    projectIdInput.addEventListener('change', async () => {
+      if (document.querySelector('input[name="mod"]:checked').value !== 'pico') {
+        picoProjectIdInput.value = projectIdInput.value;
+      } else {
+        // If in PICO mode and project changes, load PICO data
+        const projectName = projectIdInput.value.trim();
+        if (projectName) {
+          try {
+            const projectId = await getOrCreateProject(projectName);
+            await loadPicoData(projectId);
+          } catch (e) {
+            clearPicoForm();
+          }
+        } else {
+          clearPicoForm();
+        }
+      }
+    });
+    
+    picoProjectIdInput.addEventListener('change', async () => {
+      if (document.querySelector('input[name="mod"]:checked').value === 'pico') {
+        projectIdInput.value = picoProjectIdInput.value;
+        // Load PICO data when project changes in PICO mode
+        const projectName = picoProjectIdInput.value.trim();
+        if (projectName) {
+          try {
+            const projectId = await getOrCreateProject(projectName);
+            await loadPicoData(projectId);
+          } catch (e) {
+            clearPicoForm();
+          }
+        } else {
+          clearPicoForm();
+        }
+      }
+    });
+  }
+}
+
 // Initialize theme and start conversation
 initTheme();
 initSidebar();
 initSettings();
 initDeleteProject();
+initPicoMode();
 startConversation();

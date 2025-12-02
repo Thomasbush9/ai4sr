@@ -1740,3 +1740,212 @@ body {
   background: #4b5563;
   border-color: #6b7280;
 }
+
+/* PICO Form Styles */
+.pico-section {
+  padding: var(--space-6);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+}
+
+.pico-form {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.pico-form-title {
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-6);
+  text-align: center;
+}
+
+.pico-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.pico-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pico-field-full {
+  grid-column: 1 / -1;
+}
+
+.pico-label {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.pico-label .required {
+  color: var(--error-500);
+}
+
+.pico-input {
+  padding: var(--space-3) var(--space-4);
+  border: 2px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  transition: all var(--transition-fast);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+}
+
+.pico-input:focus {
+  outline: none;
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 3px var(--primary-100);
+  background: var(--bg-secondary);
+}
+
+.pico-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.pico-button {
+  padding: var(--space-3) var(--space-6);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: var(--shadow-sm);
+}
+
+.pico-button-primary {
+  background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
+  color: white;
+}
+
+.pico-button-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--primary-600), var(--primary-700));
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.pico-button-secondary {
+  background: var(--gray-200);
+  color: var(--gray-800);
+}
+
+.pico-button-secondary:hover:not(:disabled) {
+  background: var(--gray-300);
+  transform: translateY(-1px);
+}
+
+.pico-button-success {
+  background: linear-gradient(135deg, var(--success-500), var(--success-600));
+  color: white;
+}
+
+.pico-button-success:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--success-600), #15803d);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.pico-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.pico-status {
+  text-align: center;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pico-status-info {
+  background: var(--primary-50);
+  color: var(--primary-700);
+  border: 1px solid var(--primary-200);
+}
+
+.pico-status-success {
+  background: var(--success-50);
+  color: var(--success-700);
+  border: 1px solid var(--success-200);
+}
+
+.pico-status-error {
+  background: var(--error-50);
+  color: var(--error-700);
+  border: 1px solid var(--error-200);
+}
+
+[data-theme="dark"] .pico-section {
+  background: var(--bg-secondary);
+}
+
+[data-theme="dark"] .pico-input {
+  background: var(--bg-primary);
+  border-color: var(--border-primary);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .pico-input:focus {
+  background: var(--bg-secondary);
+  border-color: var(--primary-400);
+}
+
+[data-theme="dark"] .pico-button-secondary {
+  background: var(--gray-700);
+  color: var(--gray-200);
+}
+
+[data-theme="dark"] .pico-button-secondary:hover:not(:disabled) {
+  background: var(--gray-600);
+}
+
+[data-theme="dark"] .pico-status-info {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--primary-300);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+[data-theme="dark"] .pico-status-success {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--success-400);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+[data-theme="dark"] .pico-status-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--error-400);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+@media (max-width: 768px) {
+  .pico-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .pico-actions {
+    flex-direction: column;
+  }
+  
+  .pico-button {
+    width: 100%;
+  }
+}

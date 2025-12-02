@@ -35,6 +35,13 @@
                 <span class="tab-text">RAG Chat</span>
               </span>
             </label>
+            <label class="mode-tab">
+              <input type="radio" name="mod" value="pico">
+              <span class="tab-content">
+                <span class="tab-icon">📋</span>
+                <span class="tab-text">PICO Review</span>
+              </span>
+            </label>
           </div>
         </div>
         
@@ -93,7 +100,8 @@
       <div class="chat-container">
         <div id="chat" class="chat"></div>
         
-        <div class="input-section">
+        <!-- Standard input section (for literature and RAG modes) -->
+        <div id="standard-input-section" class="input-section">
           <div class="input-controls">
             <div class="control-group">
               <label for="project_id" class="control-label">Project</label>
@@ -113,6 +121,52 @@
                 <span class="send-text">Send</span>
               </button>
             </div>
+          </div>
+        </div>
+
+        <!-- PICO input section (for PICO mode) -->
+        <div id="pico-input-section" class="input-section pico-section" style="display: none;">
+          <div class="input-controls">
+            <div class="control-group">
+              <label for="pico-project-id" class="control-label">Project</label>
+              <input id="pico-project-id" type="text" placeholder="Enter project name or ID" class="control-input project-input" />
+            </div>
+          </div>
+          
+          <div class="pico-form">
+            <h3 class="pico-form-title">📋 PICO Framework</h3>
+            <div class="pico-grid">
+              <div class="pico-field">
+                <label for="pico-population" class="pico-label">Population <span class="required">*</span></label>
+                <input id="pico-population" type="text" placeholder="e.g., adults with heart failure" class="pico-input" required />
+              </div>
+              <div class="pico-field">
+                <label for="pico-intervention" class="pico-label">Intervention</label>
+                <input id="pico-intervention" type="text" placeholder="e.g., SGLT2 inhibitors" class="pico-input" />
+              </div>
+              <div class="pico-field">
+                <label for="pico-comparison" class="pico-label">Comparison</label>
+                <input id="pico-comparison" type="text" placeholder="e.g., placebo" class="pico-input" />
+              </div>
+              <div class="pico-field">
+                <label for="pico-outcome" class="pico-label">Outcome</label>
+                <input id="pico-outcome" type="text" placeholder="e.g., hospitalization" class="pico-input" />
+              </div>
+              <div class="pico-field">
+                <label for="pico-study-design" class="pico-label">Study Design</label>
+                <input id="pico-study-design" type="text" placeholder="e.g., RCT, cohort, observational" class="pico-input" />
+              </div>
+              <div class="pico-field pico-field-full">
+                <label for="pico-extra-terms" class="pico-label">Extra Terms (comma-separated)</label>
+                <input id="pico-extra-terms" type="text" placeholder="e.g., cardiovascular, diabetes" class="pico-input" />
+              </div>
+            </div>
+            <div class="pico-actions">
+              <button id="save-pico" class="pico-button pico-button-primary">💾 Save PICO</button>
+              <button id="expand-pico" class="pico-button pico-button-secondary" disabled>🔍 Expand PICO</button>
+              <button id="generate-corpus" class="pico-button pico-button-success" disabled>📚 Generate Corpus</button>
+            </div>
+            <div id="pico-status" class="pico-status"></div>
           </div>
         </div>
       </div>

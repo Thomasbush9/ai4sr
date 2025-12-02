@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS papers (
   pdf_path      TEXT,
 
   -- screening outcome
-  status        TEXT NOT NULL CHECK (status IN ('include','maybe')),
+  status        TEXT NOT NULL CHECK (status IN ('include','maybe','UNSCREENED')),
   score         INTEGER CHECK (score BETWEEN 0 AND 100),
   rationale     TEXT,          -- optional explanation
 
@@ -74,4 +74,47 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
+
+-- PICO table for storing review questions
+CREATE TABLE IF NOT EXISTS pico (
+  id            INTEGER PRIMARY KEY,
+  project_id    INTEGER NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+  population    TEXT NOT NULL,
+  intervention  TEXT,
+  comparison    TEXT,
+  outcome       TEXT,
+  study_design  TEXT,
+  extra_terms   TEXT,          -- JSON array
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_pico_project ON pico(project_id);
+
+-- PICO expansion results
+CREATE TABLE IF NOT EXISTS pico_expansions (
+  id              INTEGER PRIMARY KEY,
+  project_id      INTEGER NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+  question_summary TEXT NOT NULL,
+  pubmed_query    TEXT NOT NULL,
+  openalex_query  TEXT NOT NULL,
+  pico_keywords   TEXT NOT NULL,  -- JSON object
+  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_pico_expansions_project ON pico_expansions(project_id);
+
+-- Ingestion logs for corpus generation
+CREATE TABLE IF NOT EXISTS review_ingestion_logs (
+  id              INTEGER PRIMARY KEY,
+  project_id      INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  pubmed_query    TEXT,
+  openalex_query  TEXT,
+  pubmed_count    INTEGER DEFAULT 0,
+  openalex_count  INTEGER DEFAULT 0,
+  total_unique    INTEGER DEFAULT 0,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_ingestion_logs_project ON review_ingestion_logs(project_id);
 

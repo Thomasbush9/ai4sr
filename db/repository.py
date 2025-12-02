@@ -1,6 +1,8 @@
 import sqlite3, hashlib
 from typing import Optional, Dict, List
 import pandas as pd
+import json
+from datetime import datetime
 
 # ---------- utilities ----------
 def _first_author(authors: Optional[str]) -> Optional[str]:
@@ -55,7 +57,12 @@ def upsert_paper(con: sqlite3.Connection, project_id: int, paper: Dict) -> int:
                doi_url    = COALESCE(?, doi_url),
                url        = COALESCE(?, url),
                pdf_path   = COALESCE(?, pdf_path),
-               status     = CASE WHEN ? = 'include' THEN 'include' ELSE status END,
+               status     = CASE 
+                              WHEN ? = 'include' THEN 'include'
+                              WHEN ? = 'UNSCREENED' AND status IN ('include', 'maybe') THEN status
+                              WHEN ? = 'UNSCREENED' THEN 'UNSCREENED'
+                              ELSE COALESCE(?, status)
+                            END,
                score      = COALESCE(?, score),
                rationale  = COALESCE(?, rationale),
                citations_crossref = COALESCE(?, citations_crossref)
@@ -78,7 +85,10 @@ def upsert_paper(con: sqlite3.Connection, project_id: int, paper: Dict) -> int:
         paper.get("doi_url"),
         paper.get("url"),
         paper.get("pdf_path"),
-        paper.get("status"),
+        paper.get("status"),  # First status param for 'include' check
+        paper.get("status"),  # Second status param for 'UNSCREENED' check
+        paper.get("status"),  # Third status param for 'UNSCREENED' assignment
+        paper.get("status"),  # Fourth status param for COALESCE
         paper.get("score"),
         paper.get("rationale"),
         paper.get("citations_crossref"),
@@ -214,7 +224,7 @@ def list_maybe(con: sqlite3.Connection, project_id: int) -> List[dict]:
     return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 def set_status(con: sqlite3.Connection, paper_id: int, new_status: str, score: Optional[int] = None, rationale: Optional[str] = None):
-    assert new_status in ("include","maybe")
+    assert new_status in ("include","maybe","UNSCREENED")
     con.execute("""
         UPDATE papers
            SET status = ?,
@@ -222,4 +232,195 @@ def set_status(con: sqlite3.Connection, paper_id: int, new_status: str, score: O
                rationale = COALESCE(?, rationale)
          WHERE id = ?
     """, (new_status, score, rationale, paper_id))
+
+# ---------- PICO functions ----------
+def save_pico(con: sqlite3.Connection, project_id: int, pico) -> int:
+    """Save or update PICO for a project. Returns pico id."""
+    from agents.pico import PICO
+    
+    # Serialize extra_terms to JSON
+    extra_terms_json = None
+    if pico.extra_terms:
+        extra_terms_json = json.dumps(pico.extra_terms)
+    
+    now = datetime.utcnow().isoformat()
+    
+    # Insert or replace
+    con.execute("""
+        INSERT OR REPLACE INTO pico 
+        (project_id, population, intervention, comparison, outcome, study_design, extra_terms, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 
+                COALESCE((SELECT created_at FROM pico WHERE project_id = ?), ?),
+                ?)
+    """, (
+        project_id,
+        pico.population,
+        pico.intervention,
+        pico.comparison,
+        pico.outcome,
+        pico.study_design,
+        extra_terms_json,
+        project_id,
+        now,
+        now
+    ))
+    
+    # Get id
+    cur = con.execute("SELECT id FROM pico WHERE project_id = ?", (project_id,))
+    row = cur.fetchone()
+    return row[0] if row else con.lastrowid
+
+def get_pico(con: sqlite3.Connection, project_id: int):
+    """Get PICO for a project. Returns PICO object or None."""
+    from agents.pico import PICO
+    
+    cur = con.execute("""
+        SELECT population, intervention, comparison, outcome, study_design, extra_terms
+        FROM pico
+        WHERE project_id = ?
+    """, (project_id,))
+    
+    row = cur.fetchone()
+    if not row:
+        return None
+    
+    # Parse extra_terms JSON
+    extra_terms = None
+    if row[5]:
+        try:
+            extra_terms = json.loads(row[5])
+        except (json.JSONDecodeError, TypeError):
+            pass
+    
+    return PICO(
+        population=row[0],
+        intervention=row[1],
+        comparison=row[2],
+        outcome=row[3],
+        study_design=row[4],
+        extra_terms=extra_terms
+    )
+
+def save_pico_expansion(con: sqlite3.Connection, project_id: int, expansion: Dict) -> int:
+    """Save or update PICO expansion results. Returns expansion id."""
+    now = datetime.utcnow().isoformat()
+    
+    # Serialize pico_keywords to JSON
+    pico_keywords_json = json.dumps(expansion.get("pico_keywords", {}))
+    
+    con.execute("""
+        INSERT OR REPLACE INTO pico_expansions
+        (project_id, question_summary, pubmed_query, openalex_query, pico_keywords, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        project_id,
+        expansion.get("question_summary", ""),
+        expansion.get("pubmed_query", ""),
+        expansion.get("openalex_query", ""),
+        pico_keywords_json,
+        now
+    ))
+    
+    # Get id
+    cur = con.execute("SELECT id FROM pico_expansions WHERE project_id = ?", (project_id,))
+    row = cur.fetchone()
+    return row[0] if row else con.lastrowid
+
+def get_pico_expansion(con: sqlite3.Connection, project_id: int) -> Optional[Dict]:
+    """Get PICO expansion for a project. Returns dict or None."""
+    cur = con.execute("""
+        SELECT question_summary, pubmed_query, openalex_query, pico_keywords, created_at
+        FROM pico_expansions
+        WHERE project_id = ?
+    """, (project_id,))
+    
+    row = cur.fetchone()
+    if not row:
+        return None
+    
+    # Parse pico_keywords JSON
+    pico_keywords = {}
+    if row[3]:
+        try:
+            pico_keywords = json.loads(row[3])
+        except (json.JSONDecodeError, TypeError):
+            pass
+    
+    return {
+        "question_summary": row[0],
+        "pubmed_query": row[1],
+        "openalex_query": row[2],
+        "pico_keywords": pico_keywords,
+        "created_at": row[4]
+    }
+
+# ---------- corpus generation functions ----------
+def bulk_insert_unscreened(con: sqlite3.Connection, project_id: int, documents: List[Dict]) -> int:
+    """Bulk insert documents with UNSCREENED status. Returns count inserted."""
+    count = 0
+    for doc in documents:
+        # Calculate fingerprint
+        title = doc.get("title", "")
+        year = doc.get("year")
+        authors = doc.get("authors")
+        first_author = _first_author(authors)
+        fingerprint = _fingerprint(title, year, first_author)
+        
+        paper = {
+            "pmid": doc.get("pmid"),
+            "pmcid": doc.get("pmcid"),
+            "doi": doc.get("doi"),
+            "title": title,
+            "abstract": doc.get("abstract"),
+            "authors": authors,
+            "year": year,
+            "venue": doc.get("journal") or doc.get("venue"),
+            "volume": doc.get("volume"),
+            "issue": doc.get("issue"),
+            "pubmed_url": doc.get("pubmed_url"),
+            "doi_url": doc.get("doi_url"),
+            "url": doc.get("url"),
+            "pdf_path": None,
+            "status": "UNSCREENED",
+            "score": None,
+            "rationale": None,
+            "citations_crossref": doc.get("citations_crossref"),
+            "fingerprint": fingerprint,
+        }
+        
+        try:
+            upsert_paper(con, project_id, paper)
+            count += 1
+        except Exception as e:
+            # Log error but continue - might be duplicate constraint
+            print(f"DEBUG: Error inserting paper '{title[:50]}...': {e}")
+            # Check if paper already exists (might be a duplicate)
+            # If it's a constraint violation, that's okay - paper already exists
+            if "UNIQUE constraint" not in str(e) and "constraint" not in str(e).lower():
+                # Only print non-constraint errors
+                import traceback
+                traceback.print_exc()
+            continue
+    
+    return count
+
+def save_ingestion_log(con: sqlite3.Connection, project_id: int, log_data: Dict) -> int:
+    """Save ingestion log entry. Returns log id."""
+    now = datetime.utcnow().isoformat()
+    
+    cur = con.execute("""
+        INSERT INTO review_ingestion_logs
+        (project_id, pubmed_query, openalex_query, pubmed_count, openalex_count, total_unique, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        project_id,
+        log_data.get("pubmed_query"),
+        log_data.get("openalex_query"),
+        log_data.get("pubmed_count", 0),
+        log_data.get("openalex_count", 0),
+        log_data.get("total_unique", 0),
+        now
+    ))
+    
+    return cur.lastrowid
 

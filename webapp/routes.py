@@ -3,7 +3,9 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime
 from webapp.db import get_db
 from agents.orchestrator import literature_review, rag_answer
-from db.repository import get_or_create_project
+from db.repository import get_or_create_project, save_pico, get_pico, get_pico_expansion
+from agents.pico import PICO, expand_pico
+from agents.corpus_generator import generate_corpus
 
 api_bp = Blueprint("api", __name__)
 
@@ -320,4 +322,147 @@ def message():
         return jsonify(response_data)
     else:
         return jsonify({"reply": reply})
+
+
+@api_bp.post("/projects/<int:project_id>/pico")
+def create_or_update_pico(project_id):
+    """Create or update PICO for a project."""
+    try:
+        data = request.get_json(force=True) if request.is_json else {}
+        
+        # Validate required fields
+        if "population" not in data:
+            return jsonify({"error": "population is required"}), 400
+        
+        # Create PICO object
+        pico = PICO(
+            population=data.get("population", ""),
+            intervention=data.get("intervention"),
+            comparison=data.get("comparison"),
+            outcome=data.get("outcome"),
+            study_design=data.get("study_design"),
+            extra_terms=data.get("extra_terms"),
+        )
+        
+        # Save to database
+        with get_db() as db:
+            save_pico(db, project_id, pico)
+            db.commit()
+        
+        return jsonify(pico.to_dict())
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.get("/projects/<int:project_id>/pico")
+def get_project_pico(project_id):
+    """Get PICO for a project."""
+    try:
+        with get_db() as db:
+            pico = get_pico(db, project_id)
+            
+            if not pico:
+                return jsonify({"error": "PICO not found for this project"}), 404
+            
+            return jsonify(pico.to_dict())
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.post("/projects/<int:project_id>/expand-pico")
+def expand_project_pico(project_id):
+    """Expand PICO into search queries using DSPy."""
+    try:
+        # Get API key from request or use default
+        data = request.get_json(force=True) if request.is_json else {}
+        api_key = data.get("api_key")
+        
+        # Get PICO from database
+        with get_db() as db:
+            pico = get_pico(db, project_id)
+            
+            if not pico:
+                return jsonify({"error": "PICO not found for this project. Please create PICO first."}), 404
+        
+        # Expand PICO
+        expansion_result = expand_pico(pico, project_id, api_key=api_key)
+        
+        return jsonify(expansion_result)
+        
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.get("/projects/<int:project_id>/queries")
+def get_project_queries(project_id):
+    """Get expanded queries for a project."""
+    try:
+        with get_db() as db:
+            expansion = get_pico_expansion(db, project_id)
+            
+            if not expansion:
+                return jsonify({"error": "No expansion found for this project. Please run expand-pico first."}), 404
+            
+            return jsonify(expansion)
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.post("/projects/<int:project_id>/generate-corpus")
+def generate_project_corpus(project_id):
+    """Generate corpus for a project from stored queries.
+    
+    Uses server-side config limits. Ignores any max_results in request body.
+    """
+    try:
+        # Ignore max_results from request - use server config instead
+        data = request.get_json(force=True) if request.is_json else {}
+        # api_key can still be passed for compatibility, but max_results is ignored
+        
+        # Get expanded queries from database
+        with get_db() as db:
+            expansion = get_pico_expansion(db, project_id)
+            
+            if not expansion:
+                return jsonify({
+                    "error": "No expansion found for this project. Please run expand-pico first."
+                }), 404
+            
+            pubmed_query = expansion.get("pubmed_query")
+            openalex_query = expansion.get("openalex_query")
+        
+        # Generate corpus (max_results parameter is ignored, uses config limits)
+        result = generate_corpus(
+            project_id=project_id,
+            pubmed_query=pubmed_query,
+            openalex_query=openalex_query,
+            max_results=None,  # Explicitly None - will use config limits
+            api_key=data.get("api_key")
+        )
+        
+        # Return simplified JSON response
+        return jsonify({
+            "status": "completed",
+            "project_id": project_id,
+            "sources": {
+                "pubmed": {
+                    "fetched": result["pubmed_count"],
+                    "unique": result["pubmed_unique"]
+                },
+                "openalex": {
+                    "fetched": result["openalex_count"],
+                    "unique": result["openalex_unique"]
+                }
+            },
+            "total_unique": result["total_unique"],
+            "inserted_count": result["inserted_count"]
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e), "status": "failed"}), 500
 

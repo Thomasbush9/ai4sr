@@ -18,3 +18,7 @@ OPENALEX_REQUEST_DELAY = 0.1  # polite delay between OpenAlex calls (seconds)
 # Semantic Scholar API configuration
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", None)  # Optional, free tier available
 SEMANTIC_SCHOLAR_REQUEST_DELAY = 0.1  # polite delay between Semantic Scholar calls (seconds)
+
+# Corpus generation limits (server-side, not user-configurable)
+MAX_PUBMED_RESULTS_PER_REVIEW = int(os.getenv("MAX_PUBMED_RESULTS_PER_REVIEW", "2000"))
+MAX_OPENALEX_RESULTS_PER_REVIEW = int(os.getenv("MAX_OPENALEX_RESULTS_PER_REVIEW", "2000"))
