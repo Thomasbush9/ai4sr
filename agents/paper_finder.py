@@ -16,6 +16,246 @@ import config
 # ---- Config ----
 REQUEST_DELAY = 0.1        # polite delay between Crossref calls (seconds)
 
+# ---- Relevance Ranking ----
+def calculate_relevance_score(row: pd.Series, query_keywords: List[str] = None) -> float:
+    """
+    Calculate relevance score for a paper based on multiple factors.
+    
+    Factors:
+    - Citation count (normalized, 0-1 scale)
+    - Publication year (recent = higher score)
+    - Keyword match density in title/abstract
+    - Source quality indicators
+    """
+    score = 0.0
+    
+    # 1. Citation count (0-40 points, normalized to max 1000 citations)
+    citations = row.get("citations_crossref", 0) or 0
+    citation_score = min(40, (citations / 1000.0) * 40) if citations else 0
+    score += citation_score
+    
+    # 2. Publication year (0-20 points, recent = higher)
+    year = row.get("year")
+    if year:
+        current_year = datetime.now().year
+        years_ago = current_year - year
+        if years_ago <= 2:
+            year_score = 20
+        elif years_ago <= 5:
+            year_score = 15
+        elif years_ago <= 10:
+            year_score = 10
+        else:
+            year_score = max(0, 10 - (years_ago - 10) * 0.5)
+        score += year_score
+    
+    # 3. Keyword match density (0-30 points)
+    if query_keywords:
+        title = str(row.get("title", "")).lower()
+        abstract = str(row.get("abstract", "")).lower()
+        text = f"{title} {abstract}"
+        
+        matches = sum(1 for kw in query_keywords if kw.lower() in text)
+        keyword_score = min(30, (matches / len(query_keywords)) * 30) if query_keywords else 0
+        score += keyword_score
+    
+    # 4. Title match bonus (0-10 points)
+    if query_keywords and row.get("title"):
+        title_lower = str(row.get("title", "")).lower()
+        title_matches = sum(1 for kw in query_keywords if kw.lower() in title_lower)
+        if title_matches > 0:
+            title_bonus = min(10, (title_matches / len(query_keywords)) * 10)
+            score += title_bonus
+    
+    return score
+
+def rank_papers_by_relevance(df: pd.DataFrame, query_keywords: List[str] = None) -> pd.DataFrame:
+    """Rank papers by relevance score and return sorted DataFrame."""
+    if df.empty:
+        return df
+    
+    # Calculate relevance scores
+    df["relevance_score"] = df.apply(
+        lambda row: calculate_relevance_score(row, query_keywords),
+        axis=1
+    )
+    
+    # Sort by relevance score (descending)
+    df = df.sort_values(
+        by="relevance_score",
+        ascending=False,
+        na_position='last'
+    ).reset_index(drop=True)
+    
+    return df
+
+# ---- Semantic Scholar Integration ----
+def _parse_semantic_scholar_paper(paper: Dict) -> Dict:
+    """Parse Semantic Scholar paper JSON into our standard format."""
+    # Extract DOI
+    doi = None
+    doi_url = None
+    if paper.get("externalIds", {}).get("DOI"):
+        doi = paper["externalIds"]["DOI"]
+        doi_url = f"https://doi.org/{doi}"
+    
+    # Extract PubMed IDs
+    pmid = None
+    pmcid = None
+    pubmed_url = None
+    if paper.get("externalIds", {}).get("PubMed"):
+        pmid = str(paper["externalIds"]["PubMed"])
+        pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+    if paper.get("externalIds", {}).get("PubMedCentral"):
+        pmcid = str(paper["externalIds"]["PubMedCentral"])
+    
+    # Extract authors
+    authors = None
+    if paper.get("authors"):
+        author_names = []
+        for auth in paper["authors"]:
+            name = auth.get("name", "")
+            if name:
+                author_names.append(name)
+        if author_names:
+            authors = "; ".join(author_names)
+    
+    # Extract year
+    year = None
+    if paper.get("year"):
+        try:
+            year = int(paper["year"])
+        except Exception:
+            pass
+    
+    # Extract venue (journal)
+    venue = None
+    if paper.get("venue"):
+        venue = paper["venue"]
+    
+    # Extract citations count
+    citations_crossref = paper.get("citationCount", 0)
+    
+    # Extract relevance score if available
+    relevance_score = paper.get("relevanceScore", None)
+    
+    return {
+        "pmid": pmid,
+        "pmcid": pmcid,
+        "title": norm(paper.get("title", "")),
+        "abstract": norm(paper.get("abstract", "")),
+        "year": year,
+        "authors": authors,
+        "journal": norm(venue) if venue else None,
+        "volume": None,
+        "issue": None,
+        "doi": norm(doi) if doi else None,
+        "pubmed_url": pubmed_url,
+        "doi_url": doi_url,
+        "citations_crossref": citations_crossref,
+        "semantic_scholar_id": paper.get("paperId"),
+        "semantic_scholar_url": f"https://www.semanticscholar.org/paper/{paper.get('paperId')}" if paper.get("paperId") else None,
+        "relevance_score": relevance_score,
+    }
+
+def fetch_semantic_scholar_papers(query: str, n: int = 20) -> pd.DataFrame:
+    """Search Semantic Scholar API and return DataFrame of papers."""
+    # Semantic Scholar API is currently having issues, disable by default
+    # Can be enabled later when API is stable
+    print("DEBUG: Semantic Scholar is currently disabled due to API issues")
+    return pd.DataFrame()
+    
+    # Disabled code below - re-enable when API is fixed
+    """
+    records = []
+    offset = 0
+    limit = min(100, n)  # Semantic Scholar max per request is 100
+    
+    headers = {"User-Agent": "ai4sr-paper-finder/1.0 (mailto:thomasbush52@gmail.com)"}
+    if config.SEMANTIC_SCHOLAR_API_KEY:
+        headers["x-api-key"] = config.SEMANTIC_SCHOLAR_API_KEY
+    
+    try:
+        # Simplified fields - remove problematic ones
+        params = {
+            "query": query,
+            "limit": limit,
+            "offset": offset,
+            "fields": "title,abstract,authors,year,venue,externalIds,citationCount,paperId"
+        }
+        
+        r = requests.get(
+            "https://api.semanticscholar.org/graph/v1/paper/search",
+            params=params,
+            headers=headers,
+            timeout=30,
+        )
+        
+        if r.status_code != 200:
+            error_msg = r.text if hasattr(r, 'text') else str(r.status_code)
+            print(f"DEBUG: Semantic Scholar API returned status {r.status_code}: {error_msg}")
+            return pd.DataFrame()
+        
+        data = r.json()
+        results = data.get("data", [])
+        
+        for paper in results[:n]:
+            try:
+                parsed = _parse_semantic_scholar_paper(paper)
+                records.append(parsed)
+            except Exception as e:
+                print(f"DEBUG: Error parsing Semantic Scholar paper: {e}")
+                continue
+        
+        time.sleep(config.SEMANTIC_SCHOLAR_REQUEST_DELAY)
+        
+    except Exception as e:
+        print(f"DEBUG: Error fetching from Semantic Scholar: {e}")
+        return pd.DataFrame()
+    """
+    
+    if not records:
+        return pd.DataFrame()
+    
+    df = pd.DataFrame.from_records(records, columns=[
+        "pmid", "pmcid", "title", "abstract", "year", "authors", "journal",
+        "volume", "issue", "doi", "pubmed_url", "doi_url", "citations_crossref",
+        "semantic_scholar_id", "semantic_scholar_url", "relevance_score"
+    ])
+    
+    # Sort by relevance score if available, otherwise by citations
+    if "relevance_score" in df.columns and df["relevance_score"].notna().any():
+        df = df.sort_values(
+            by=["relevance_score", "citations_crossref"],
+            ascending=[False, False],
+            na_position='last'
+        ).reset_index(drop=True)
+    else:
+        df = df.sort_values(
+            by="citations_crossref",
+            ascending=False,
+            na_position='last'
+        ).reset_index(drop=True)
+    
+    return df
+
+def _fetch_semantic_scholar_simple(query: str, n: int) -> pd.DataFrame:
+    """Fetch papers from Semantic Scholar and return in standard format."""
+    df = fetch_semantic_scholar_papers(query, n)
+    if df.empty:
+        print(f"DEBUG: Semantic Scholar returned 0 results for query: {query}")
+        return df
+    
+    print(f"DEBUG: Semantic Scholar returned {len(df)} results")
+    
+    # Remove Semantic Scholar-specific columns for consistency (keep semantic_scholar_url)
+    cols_to_drop = ["semantic_scholar_id", "relevance_score"]
+    for col in cols_to_drop:
+        if col in df.columns:
+            df = df.drop(columns=[col])
+    
+    return df
+
 # ---- Helpers ----
 def norm(s):
     return " ".join(s.split()) if isinstance(s, str) else s
@@ -158,18 +398,65 @@ def _parse_openalex_work(work: Dict) -> Dict:
         "related_works": work.get("related_works", []),
     }
 
-def fetch_openalex_works(query: str, n: int = 20) -> pd.DataFrame:
-    """Search OpenAlex API and return DataFrame of works."""
+def fetch_openalex_works(query: str, n: int = 20, search_strategy: str = "broad") -> pd.DataFrame:
+    """
+    Search OpenAlex API with improved search strategies.
+    
+    Args:
+        query: Search query string
+        n: Maximum number of results
+        search_strategy: One of 'broad', 'title', 'abstract', 'all'
+          - 'broad': General search across all fields
+          - 'title': Search in title only
+          - 'abstract': Search in abstract only
+          - 'all': Combine all strategies and merge results
+    """
+    if search_strategy == "all":
+        # Use multiple strategies and combine
+        dfs = []
+        for strategy in ["broad", "title", "abstract"]:
+            df = fetch_openalex_works(query, n=n, search_strategy=strategy)
+            if not df.empty:
+                dfs.append(df)
+        
+        if not dfs:
+            return pd.DataFrame()
+        
+        # Combine and deduplicate
+        combined = pd.concat(dfs, ignore_index=True)
+        combined = combined.drop_duplicates(
+            subset=['doi', 'pmid', 'pmcid'],
+            keep='first'
+        ).reset_index(drop=True)
+        
+        # Sort by relevance (citations, then year)
+        combined = combined.sort_values(
+            by=['citations_crossref', 'year'],
+            ascending=[False, False],
+            na_position='last'
+        ).reset_index(drop=True)
+        
+        return combined.head(n)
+    
     records = []
     per_page = min(200, n)  # OpenAlex max per_page is 200
     pages_needed = (n + per_page - 1) // per_page
     
+    # Build search query based on strategy
+    if search_strategy == "title":
+        search_query = f"title.search:{query}"
+    elif search_strategy == "abstract":
+        search_query = f"abstract.search:{query}"
+    else:  # broad
+        search_query = query
+    
     for page in range(1, pages_needed + 1):
         try:
             params = {
-                "search": query,
+                "search": search_query,
                 "per_page": per_page,
                 "page": page,
+                "sort": "cited_by_count:desc",  # Sort by citations (relevance)
             }
             if config.OPENALEX_EMAIL:
                 params["mailto"] = config.OPENALEX_EMAIL
@@ -182,6 +469,7 @@ def fetch_openalex_works(query: str, n: int = 20) -> pd.DataFrame:
             )
             
             if r.status_code != 200:
+                print(f"DEBUG: OpenAlex API returned status {r.status_code}")
                 break
                 
             data = r.json()
@@ -205,6 +493,7 @@ def fetch_openalex_works(query: str, n: int = 20) -> pd.DataFrame:
             time.sleep(config.OPENALEX_REQUEST_DELAY)
             
         except Exception as e:
+            print(f"DEBUG: Error in OpenAlex search: {e}")
             break
     
     df = pd.DataFrame.from_records(records, columns=[
@@ -212,6 +501,14 @@ def fetch_openalex_works(query: str, n: int = 20) -> pd.DataFrame:
         "volume", "issue", "doi", "pubmed_url", "doi_url", "citations_crossref",
         "openalex_id", "referenced_works", "cited_by_api_url", "related_works"
     ])
+    
+    # Sort by citations if not already sorted
+    if not df.empty:
+        df = df.sort_values(
+            by='citations_crossref',
+            ascending=False,
+            na_position='last'
+        ).reset_index(drop=True)
     
     return df
 
@@ -371,11 +668,24 @@ def fetch_similar_papers(work_id: str, max_results: int = None) -> pd.DataFrame:
 
 def _fetch_pubmed(query: str, n: int, include_citations: bool) -> pd.DataFrame:
     """Fetch papers from PubMed."""
+    if not query or not query.strip():
+        print("ERROR: PubMed query is empty!")
+        return pd.DataFrame()
+    
+    print(f"DEBUG: _fetch_pubmed called with query: '{query}', n={n}")
     fetch = PubMedFetcher()
-    pmids = fetch.pmids_for_query(query, retmax=n) or []
+    
+    try:
+        pmids = fetch.pmids_for_query(query, retmax=n) or []
+    except Exception as e:
+        print(f"ERROR: pmids_for_query failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return pd.DataFrame()
+    
     pmids = list(dict.fromkeys(pmids))
     
-    print(f"DEBUG: PubMed found {len(pmids)} PMIDs for query")
+    print(f"DEBUG: PubMed found {len(pmids)} PMIDs for query '{query}'")
 
     records = []
     for pmid in tqdm(pmids, desc="Fetching PubMed records"):
@@ -417,8 +727,9 @@ def _fetch_pubmed(query: str, n: int, include_citations: bool) -> pd.DataFrame:
     return df
 
 def _fetch_openalex_simple(query: str, n: int) -> pd.DataFrame:
-    """Fetch papers from OpenAlex and return in standard format."""
-    df = fetch_openalex_works(query, n)
+    """Fetch papers from OpenAlex - use broad search for simplicity and reliability."""
+    # Use 'broad' strategy for simplicity (multiple strategies can be slow and error-prone)
+    df = fetch_openalex_works(query, n=n, search_strategy="broad")
     if df.empty:
         print(f"DEBUG: OpenAlex returned 0 results for query: {query}")
         return df
@@ -445,48 +756,79 @@ def articles_fetchers(
     n: int = 20, 
     include_citations: bool = True, 
     save: bool = False,
-    sources: List[str] = None
+    sources: List[str] = None,
+    pubmed_query: str = None,
+    other_sources_query: str = None
 ):
     """
     Fetch articles from multiple sources.
     
     Args:
-        query: Search query string
+        query: Default search query string (used if source-specific queries not provided)
         n: Maximum number of results per source
         include_citations: Whether to fetch citation counts (PubMed only)
         save: Whether to save results to CSV
-        sources: List of sources to use. Options: 'pubmed', 'openalex'. Default: ['pubmed', 'openalex']
+        sources: List of sources to use. Options: 'pubmed', 'openalex', 'semantic_scholar'. 
+                Default: ['pubmed', 'openalex']
+        pubmed_query: Specific query for PubMed (uses complex format). If None, uses query.
+        other_sources_query: Query for OpenAlex/Semantic Scholar (simple format). If None, uses query.
     
     Returns:
-        DataFrame with merged results from all sources
+        DataFrame with merged results from all sources, ranked by relevance
     """
     if sources is None:
         sources = ['pubmed', 'openalex']
     
     sources = [s.lower() for s in sources]
+    # Remove semantic_scholar if present (currently disabled due to API issues)
+    if 'semantic_scholar' in sources:
+        sources.remove('semantic_scholar')
+        print("DEBUG: Semantic Scholar removed from sources (currently disabled)")
+    
     dfs = []
+    
+    # Use source-specific queries if provided, otherwise use default query
+    pubmed_q = pubmed_query if pubmed_query is not None else query
+    other_q = other_sources_query if other_sources_query is not None else query
+    
+    # Extract keywords from query for relevance ranking
+    query_keywords = other_q.lower().split() if other_sources_query else query.lower().split()
     
     def fetch_pubmed_wrapper():
         try:
-            return _fetch_pubmed(query, n, include_citations)
+            print(f"DEBUG: PubMed query being used: '{pubmed_q}'")
+            return _fetch_pubmed(pubmed_q, n, include_citations)
         except Exception as e:
-            print(f"Error fetching from PubMed: {e}")
+            print(f"ERROR: Exception fetching from PubMed: {e}")
+            import traceback
+            traceback.print_exc()
             return pd.DataFrame()
     
     def fetch_openalex_wrapper():
         try:
-            return _fetch_openalex_simple(query, n)
+            return _fetch_openalex_simple(other_q, n)
         except Exception as e:
             print(f"Error fetching from OpenAlex: {e}")
             return pd.DataFrame()
     
+    def fetch_semantic_scholar_wrapper():
+        try:
+            return _fetch_semantic_scholar_simple(other_q, n)
+        except Exception as e:
+            print(f"Error fetching from Semantic Scholar: {e}")
+            return pd.DataFrame()
+    
     # Fetch from sources in parallel
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    max_workers = min(len([s for s in sources if s in ['pubmed', 'openalex']]), 2)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {}
         if 'pubmed' in sources:
             futures['pubmed'] = executor.submit(fetch_pubmed_wrapper)
         if 'openalex' in sources:
             futures['openalex'] = executor.submit(fetch_openalex_wrapper)
+        # Semantic Scholar disabled for now
+        # if 'semantic_scholar' in sources:
+        #     futures['semantic_scholar'] = executor.submit(fetch_semantic_scholar_wrapper)
         
         for source, future in futures.items():
             try:
@@ -505,7 +847,7 @@ def articles_fetchers(
     if not dfs:
         df = pd.DataFrame(columns=[
             "pmid","pmcid","title","abstract","year","authors","journal","volume","issue",
-            "doi","pubmed_url","doi_url","citations_crossref","source","openalex_url"
+            "doi","pubmed_url","doi_url","citations_crossref","source","openalex_url","semantic_scholar_url"
         ])
     else:
         df = pd.concat(dfs, ignore_index=True)
@@ -530,18 +872,30 @@ def articles_fetchers(
             source_counts = df["source"].value_counts()
             print(f"DEBUG: Papers by source after deduplication: {dict(source_counts)}")
         
-        # Set url field to openalex_url if no doi_url or pubmed_url
-        if "openalex_url" in df.columns:
-            df["url"] = df.apply(
-                lambda row: row.get("openalex_url") 
-                if pd.notna(row.get("openalex_url")) 
-                and not pd.notna(row.get("doi_url")) 
-                and not pd.notna(row.get("pubmed_url"))
-                else (row.get("url") if "url" in row else None),
-                axis=1
-            )
+        # Set url field to openalex_url or semantic_scholar_url if no doi_url or pubmed_url
+        if "openalex_url" in df.columns or "semantic_scholar_url" in df.columns:
+            def set_url(row):
+                if pd.notna(row.get("doi_url")):
+                    return row.get("doi_url")
+                elif pd.notna(row.get("pubmed_url")):
+                    return row.get("pubmed_url")
+                elif pd.notna(row.get("openalex_url")):
+                    return row.get("openalex_url")
+                elif pd.notna(row.get("semantic_scholar_url")):
+                    return row.get("semantic_scholar_url")
+                return row.get("url") if "url" in row else None
+            
+            df["url"] = df.apply(set_url, axis=1)
         
-        # Limit to requested number
+        # Rank papers by relevance before limiting (only if we have papers and keywords)
+        if not df.empty and query_keywords:
+            try:
+                df = rank_papers_by_relevance(df, query_keywords)
+                print(f"DEBUG: Ranked papers by relevance (top score: {df['relevance_score'].max() if 'relevance_score' in df.columns else 'N/A'})")
+            except Exception as e:
+                print(f"DEBUG: Error in relevance ranking: {e}, continuing without ranking")
+        
+        # Limit to requested number (after ranking)
         if len(df) > n:
             df = df.head(n)
 

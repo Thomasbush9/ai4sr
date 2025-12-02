@@ -123,14 +123,21 @@ function addPaperTable(papers) {
     if (paper.openalex_url) {
       links.push(`<a href="${escapeHtml(paper.openalex_url)}" target="_blank" class="link-btn openalex-link">OpenAlex</a>`);
     }
+    if (paper.semantic_scholar_url) {
+      links.push(`<a href="${escapeHtml(paper.semantic_scholar_url)}" target="_blank" class="link-btn semantic-scholar-link">Semantic Scholar</a>`);
+    }
     // Check if url is an OpenAlex URL (for papers stored with openalex_url in url field)
     if (paper.url && paper.url.includes("openalex.org") && !paper.openalex_url) {
       links.push(`<a href="${escapeHtml(paper.url)}" target="_blank" class="link-btn openalex-link">OpenAlex</a>`);
     }
+    // Check if url is a Semantic Scholar URL
+    if (paper.url && paper.url.includes("semanticscholar.org") && !paper.semantic_scholar_url) {
+      links.push(`<a href="${escapeHtml(paper.url)}" target="_blank" class="link-btn semantic-scholar-link">Semantic Scholar</a>`);
+    }
     if (paper.pdf_path) {
       links.push(`<a href="${escapeHtml(paper.pdf_path)}" target="_blank" class="link-btn pdf-link">PDF</a>`);
     }
-    if (paper.url && !paper.doi_url && !paper.pubmed_url && !paper.openalex_url && !paper.url.includes("openalex.org")) {
+    if (paper.url && !paper.doi_url && !paper.pubmed_url && !paper.openalex_url && !paper.semantic_scholar_url && !paper.url.includes("openalex.org") && !paper.url.includes("semanticscholar.org")) {
       links.push(`<a href="${escapeHtml(paper.url)}" target="_blank" class="link-btn url-link">Link</a>`);
     }
     

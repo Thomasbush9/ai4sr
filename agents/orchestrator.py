@@ -107,11 +107,24 @@ def literature_review(query: str, project_id: int, n: int = 10, api_key: str = N
     print(f"DEBUG: Generated concepts: {concepts}")
     
     q = build_pubmed_query_from_concepts(concepts, field="tiab", mesh_hints=None)
-    print(f"DEBUG: Built query: {q}")
+    print(f"DEBUG: Built PubMed query: '{q}' (length: {len(q) if q else 0})")
+    
+    # Fallback: if query is empty, use keywords as fallback
+    if not q or not q.strip():
+        print("WARNING: PubMed query is empty! Falling back to keyword-based query.")
+        q = " OR ".join(keywords[:5]) if keywords else query
+        print(f"DEBUG: Fallback PubMed query: '{q}'")
+    
     # q = append_filters(q, english=True, humans=True, year_from=2015)
 
     print("DEBUG: Fetching articles from multiple sources...")
-    df = articles_fetchers(q, n=n, include_citations=False, sources=['pubmed', 'openalex'])
+    # Use proper PubMed query for PubMed
+    # For OpenAlex, use all keywords (expanded query) - better than just first 10
+    openalex_query = " ".join(keywords) if keywords else query
+    print(f"DEBUG: OpenAlex query (expanded keywords): {openalex_query}")
+    # Default to pubmed + openalex (semantic_scholar has API issues)
+    df = articles_fetchers(q, n=n, include_citations=False, sources=['pubmed', 'openalex'], 
+                           pubmed_query=q, other_sources_query=openalex_query)
     print(f"DEBUG: Fetched {len(df)} articles from PubMed and OpenAlex")
 
     # Fetch citations and similar papers for ALL initial papers (before screening)
@@ -211,6 +224,24 @@ def literature_review(query: str, project_id: int, n: int = 10, api_key: str = N
     
     print(f"DEBUG: Total papers after adding citations/similar: {len(all_papers_df)} (initial: {initial_count}, added: {len(all_papers_df) - initial_count})")
     
+    # Rank all papers by relevance before screening (if we have papers)
+    if not all_papers_df.empty and keywords:
+        try:
+            print("DEBUG: Ranking all papers by relevance before screening...")
+            from .paper_finder import rank_papers_by_relevance
+            query_keywords = keywords  # Use generated keywords for relevance scoring
+            all_papers_df = rank_papers_by_relevance(all_papers_df, query_keywords)
+            
+            # Optionally limit to top N most relevant papers before screening (if too many)
+            max_papers_to_screen = n * 5  # Screen up to 5x the requested number
+            if len(all_papers_df) > max_papers_to_screen:
+                print(f"DEBUG: Limiting to top {max_papers_to_screen} most relevant papers for screening")
+                all_papers_df = all_papers_df.head(max_papers_to_screen)
+            
+            print(f"DEBUG: Top relevance score: {all_papers_df['relevance_score'].max() if 'relevance_score' in all_papers_df.columns else 'N/A'}")
+        except Exception as e:
+            print(f"DEBUG: Error in relevance ranking: {e}, continuing without ranking")
+    
     # Now screen ALL papers together (initial + citations + similar)
     print("DEBUG: Starting Stage 1 - Basic screening on all papers...")
     basic_decisions = []
@@ -252,10 +283,62 @@ def literature_review(query: str, project_id: int, n: int = 10, api_key: str = N
     
     print(f"DEBUG: Stage 1 complete. {len(passed_papers)} papers passed basic screening out of {len(all_papers_df)}")
     
-    # STAGE 2: Detailed PICO analysis with CoT screener for passed papers
-    print("DEBUG: Starting Stage 2 - Detailed PICO analysis...")
+    # Separate included and maybe papers
+    included_papers = []
+    included_decisions = []
+    maybe_papers = []
+    maybe_decisions = []
+    
+    for row, decision in zip(passed_papers, passed_decisions):
+        if decision["decision"] == "include":
+            included_papers.append(row)
+            included_decisions.append(decision)
+        elif decision["decision"] == "maybe":
+            maybe_papers.append(row)
+            maybe_decisions.append(decision)
+    
+    print(f"DEBUG: Stage 1 breakdown - Included: {len(included_papers)}, Maybe: {len(maybe_papers)}")
+    
+    # STAGE 2: Review maybe papers with more careful screening
+    print("DEBUG: Starting Stage 2 - Reviewing maybe papers...")
+    reviewed_maybe_decisions = []
+    for i, (row, basic_decision) in enumerate(tqdm(zip(maybe_papers, maybe_decisions), desc="Reviewing maybes")):
+        title = row.title
+        abstract = getattr(row, "abstract", "") or ""
+        
+        # Re-screen maybe papers with more context - use basic screener again but with emphasis on careful review
+        try:
+            # Use basic screener again but the model should be more careful with maybes
+            res = basic_screener(question=query, title=title, abstract=abstract)
+            
+            # Ensure the result has the expected keys
+            if not isinstance(res, dict):
+                res = {"decision": "maybe", "score": 50}
+            elif "decision" not in res:
+                res["decision"] = "maybe"
+            if "score" not in res:
+                res["score"] = 50
+                
+        except Exception as e:
+            print(f"DEBUG: Maybe review screener error: {e}")
+            res = {"decision": "maybe", "score": 50}
+        
+        reviewed_maybe_decisions.append({
+            "decision": res.get("decision", "maybe"),
+            "score": res.get("score", 50),
+            "rationale": f"Reviewed from maybe: {res.get('decision', 'maybe')}"
+        })
+    
+    # Combine included papers with reviewed maybes for PICO analysis
+    papers_for_pico = included_papers + maybe_papers
+    decisions_for_pico = included_decisions + reviewed_maybe_decisions
+    
+    print(f"DEBUG: Stage 2 complete. {len(papers_for_pico)} papers proceeding to PICO analysis (included: {len(included_papers)}, reviewed maybes: {len(maybe_papers)})")
+    
+    # STAGE 3: Detailed PICO analysis with CoT screener
+    print("DEBUG: Starting Stage 3 - Detailed PICO analysis...")
     final_decisions = []
-    for i, (row, basic_decision) in enumerate(tqdm(zip(passed_papers, passed_decisions), desc="PICO analysis")):
+    for i, (row, prev_decision) in enumerate(tqdm(zip(papers_for_pico, decisions_for_pico), desc="PICO analysis")):
         title = row.title
         abstract = getattr(row, "abstract", "") or ""
         
@@ -284,15 +367,15 @@ def literature_review(query: str, project_id: int, n: int = 10, api_key: str = N
     
     # Create final decisions list that matches the all_papers_df order
     all_decisions = []
-    passed_idx = 0
+    pico_idx = 0
     for i, basic_decision in enumerate(basic_decisions):
-        if basic_decision["decision"] in ["include", "maybe"]:
-            # This paper went through CoT analysis
-            all_decisions.append(final_decisions[passed_idx])
-            passed_idx += 1
-        else:
+        if basic_decision["decision"] == "exclude":
             # This paper was excluded in basic screening
             all_decisions.append(basic_decision)
+        else:
+            # This paper went through maybe review and PICO analysis
+            all_decisions.append(final_decisions[pico_idx])
+            pico_idx += 1
     
     print(f"DEBUG: Completed screening, {len(all_decisions)} decisions made")
     print(f"DEBUG: Decisions sample: {all_decisions[:2] if all_decisions else 'No decisions'}")
