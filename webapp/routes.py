@@ -1,5 +1,5 @@
 # webapp/routes.py
-from flask import Blueprint, request, jsonify, render_template
+from flask import Blueprint, request, jsonify, render_template, make_response
 from datetime import datetime
 from webapp.db import get_db
 from agents.orchestrator import literature_review, rag_answer
@@ -795,6 +795,314 @@ def chat_endpoint(project_id):
         answer = rag_answer(question, project_id, api_key=user_api_key)
         
         return jsonify({"answer": answer})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.get("/projects/<int:project_id>/export")
+def export_included_papers_endpoint(project_id):
+    """Export included papers in various formats."""
+    try:
+        from db.repository import get_included_papers, get_agent_summaries, get_project_overview
+        from webapp.db import get_db
+        import csv
+        import io
+        import json
+        from datetime import datetime
+        
+        format_type = request.args.get('format', 'json').lower()
+        
+        if format_type not in ['csv', 'json', 'bibtex', 'ris', 'pdf']:
+            return jsonify({"error": "Invalid format. Supported: csv, json, bibtex, ris, pdf"}), 400
+        
+        with get_db() as db:
+            # Get project name
+            project = db.execute("SELECT name FROM projects WHERE id = ?", (project_id,)).fetchone()
+            project_name = project['name'] if project else f"Project_{project_id}"
+            
+            # Get included papers
+            papers = get_included_papers(db, project_id)
+            
+            # Get summaries
+            summaries = get_agent_summaries(db, project_id)
+            summary_map = {s["paper_id"]: s for s in summaries}
+            
+            # Get overview
+            overview = get_project_overview(db, project_id)
+            
+            # Combine papers with summaries
+            papers_data = []
+            for paper in papers:
+                paper_id = paper["paper_id"]
+                summary = summary_map.get(paper_id)
+                
+                paper_data = {
+                    "id": paper_id,
+                    "title": paper.get("title", "") or "",
+                    "abstract": paper.get("abstract", "") or "",
+                    "authors": paper.get("authors", "") or "",
+                    "year": paper.get("year"),
+                    "venue": paper.get("venue", "") or "",
+                    "doi": paper.get("doi", "") or "",
+                    "pmid": paper.get("pmid", "") or "",
+                    "pmcid": paper.get("pmcid", "") or "",
+                    "url": paper.get("url", "") or "",
+                    "pubmed_url": paper.get("pubmed_url", "") or "",
+                    "doi_url": paper.get("doi_url", "") or "",
+                    "summary": None
+                }
+                
+                if summary:
+                    paper_data["summary"] = {
+                        "population": summary.get("population", "") or "",
+                        "intervention": summary.get("intervention", "") or "",
+                        "comparator": summary.get("comparator", "") or "",
+                        "outcomes": summary.get("outcomes", "") or "",
+                        "main_findings": summary.get("main_findings", "") or "",
+                        "sample_size": summary.get("sample_size", "") or "",
+                        "notes": summary.get("notes", "") or ""
+                    }
+                
+                papers_data.append(paper_data)
+        
+        # Generate export based on format
+        if format_type == 'csv':
+            output = io.StringIO()
+            writer = csv.writer(output)
+            
+            # Write header
+            writer.writerow([
+                'Title', 'Authors', 'Year', 'Venue', 'DOI', 'PMID', 'PMCID',
+                'Abstract', 'Population', 'Intervention', 'Comparator', 'Outcomes',
+                'Main Findings', 'Sample Size', 'Notes'
+            ])
+            
+            # Write data
+            for paper in papers_data:
+                summary = paper.get('summary') or {}
+                writer.writerow([
+                    paper.get('title', ''),
+                    paper.get('authors', ''),
+                    paper.get('year', ''),
+                    paper.get('venue', ''),
+                    paper.get('doi', ''),
+                    paper.get('pmid', ''),
+                    paper.get('pmcid', ''),
+                    paper.get('abstract', ''),
+                    summary.get('population', ''),
+                    summary.get('intervention', ''),
+                    summary.get('comparator', ''),
+                    summary.get('outcomes', ''),
+                    summary.get('main_findings', ''),
+                    summary.get('sample_size', ''),
+                    summary.get('notes', '')
+                ])
+            
+            response = make_response(output.getvalue())
+            response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+            response.headers['Content-Disposition'] = f'attachment; filename="{project_name}_included_papers_{datetime.now().strftime("%Y%m%d")}.csv"'
+            return response
+            
+        elif format_type == 'json':
+            export_data = {
+                "project_name": project_name,
+                "export_date": datetime.now().isoformat(),
+                "papers_count": len(papers_data),
+                "papers": papers_data,
+                "overview": overview
+            }
+            response = make_response(json.dumps(export_data, indent=2, ensure_ascii=False))
+            response.headers['Content-Type'] = 'application/json; charset=utf-8'
+            response.headers['Content-Disposition'] = f'attachment; filename="{project_name}_included_papers_{datetime.now().strftime("%Y%m%d")}.json"'
+            return response
+            
+        elif format_type == 'bibtex':
+            output = io.StringIO()
+            for idx, paper in enumerate(papers_data, 1):
+                # Generate BibTeX key
+                first_author = ""
+                if paper.get('authors'):
+                    authors = paper['authors'].split(';')[0].split(',')[0].strip()
+                    first_author = authors.split()[0] if authors else ""
+                year = str(paper.get('year', '')) if paper.get('year') else 'n.d.'
+                key = f"{first_author}{year}{idx}".replace(' ', '').replace('.', '')[:20]
+                
+                output.write(f"@article{{{key},\n")
+                output.write(f"  title = {{{paper.get('title', '')}}},\n")
+                if paper.get('authors'):
+                    output.write(f"  author = {{{paper.get('authors', '')}}},\n")
+                if paper.get('year'):
+                    output.write(f"  year = {{{paper.get('year')}}},\n")
+                if paper.get('venue'):
+                    output.write(f"  journal = {{{paper.get('venue', '')}}},\n")
+                if paper.get('doi'):
+                    output.write(f"  doi = {{{paper.get('doi', '')}}},\n")
+                if paper.get('pmid'):
+                    output.write(f"  pmid = {{{paper.get('pmid', '')}}},\n")
+                if paper.get('abstract'):
+                    # Escape braces in abstract
+                    abstract = paper.get('abstract', '').replace('{', '{{').replace('}', '}}')
+                    output.write(f"  abstract = {{{abstract}}},\n")
+                output.write("}\n\n")
+            
+            response = make_response(output.getvalue())
+            response.headers['Content-Type'] = 'text/plain; charset=utf-8'
+            response.headers['Content-Disposition'] = f'attachment; filename="{project_name}_included_papers_{datetime.now().strftime("%Y%m%d")}.bib"'
+            return response
+            
+        elif format_type == 'ris':
+            output = io.StringIO()
+            for paper in papers_data:
+                output.write("TY  - JOUR\n")
+                if paper.get('title'):
+                    output.write(f"TI  - {paper.get('title', '')}\n")
+                if paper.get('authors'):
+                    # RIS format uses one author per line
+                    authors = paper.get('authors', '').split(';')
+                    for author in authors:
+                        author = author.strip()
+                        if author:
+                            output.write(f"AU  - {author}\n")
+                if paper.get('year'):
+                    output.write(f"PY  - {paper.get('year')}\n")
+                if paper.get('venue'):
+                    output.write(f"T2  - {paper.get('venue', '')}\n")
+                if paper.get('doi'):
+                    output.write(f"DO  - {paper.get('doi', '')}\n")
+                if paper.get('pmid'):
+                    output.write(f"PMID  - {paper.get('pmid', '')}\n")
+                if paper.get('abstract'):
+                    output.write(f"AB  - {paper.get('abstract', '')}\n")
+                if paper.get('url'):
+                    output.write(f"UR  - {paper.get('url', '')}\n")
+                output.write("ER  - \n\n")
+            
+            response = make_response(output.getvalue())
+            response.headers['Content-Type'] = 'text/plain; charset=utf-8'
+            response.headers['Content-Disposition'] = f'attachment; filename="{project_name}_included_papers_{datetime.now().strftime("%Y%m%d")}.ris"'
+            return response
+            
+        elif format_type == 'pdf':
+            try:
+                from reportlab.lib.pagesizes import letter, A4
+                from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+                from reportlab.lib.units import inch
+                from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
+                from reportlab.lib import colors
+                from reportlab.pdfbase import pdfmetrics
+                from reportlab.pdfbase.ttfonts import TTFont
+                
+                buffer = io.BytesIO()
+                doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
+                story = []
+                styles = getSampleStyleSheet()
+                
+                # Title
+                title_style = ParagraphStyle(
+                    'CustomTitle',
+                    parent=styles['Heading1'],
+                    fontSize=18,
+                    textColor=colors.HexColor('#1e293b'),
+                    spaceAfter=12,
+                )
+                story.append(Paragraph(f"Included Papers: {project_name}", title_style))
+                story.append(Spacer(1, 0.2*inch))
+                
+                # Overview if available
+                if overview:
+                    overview_style = ParagraphStyle(
+                        'Overview',
+                        parent=styles['BodyText'],
+                        fontSize=11,
+                        spaceAfter=12,
+                    )
+                    story.append(Paragraph("<b>Project Overview</b>", styles['Heading2']))
+                    overview_text = overview.get('overview', '')
+                    if overview_text:
+                        story.append(Paragraph(overview_text.replace('\n', '<br/>'), overview_style))
+                    story.append(Spacer(1, 0.2*inch))
+                
+                # Papers
+                for idx, paper in enumerate(papers_data, 1):
+                    if idx > 1:
+                        story.append(PageBreak())
+                    
+                    # Paper title
+                    story.append(Paragraph(f"<b>{idx}. {paper.get('title', 'No title')}</b>", styles['Heading2']))
+                    story.append(Spacer(1, 0.1*inch))
+                    
+                    # Metadata table
+                    metadata_data = []
+                    if paper.get('authors'):
+                        metadata_data.append(['Authors:', paper.get('authors', '')])
+                    if paper.get('year'):
+                        metadata_data.append(['Year:', str(paper.get('year'))])
+                    if paper.get('venue'):
+                        metadata_data.append(['Venue:', paper.get('venue', '')])
+                    if paper.get('doi'):
+                        metadata_data.append(['DOI:', paper.get('doi', '')])
+                    if paper.get('pmid'):
+                        metadata_data.append(['PMID:', paper.get('pmid', '')])
+                    
+                    if metadata_data:
+                        metadata_table = Table(metadata_data, colWidths=[1.5*inch, 4.5*inch])
+                        metadata_table.setStyle(TableStyle([
+                            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                            ('FONTSIZE', (0, 0), (-1, -1), 10),
+                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                        ]))
+                        story.append(metadata_table)
+                        story.append(Spacer(1, 0.15*inch))
+                    
+                    # Abstract
+                    if paper.get('abstract'):
+                        story.append(Paragraph("<b>Abstract</b>", styles['Heading3']))
+                        abstract_text = paper.get('abstract', '').replace('\n', '<br/>')
+                        story.append(Paragraph(abstract_text, styles['BodyText']))
+                        story.append(Spacer(1, 0.15*inch))
+                    
+                    # Summary
+                    summary = paper.get('summary')
+                    if summary:
+                        story.append(Paragraph("<b>Agent Summary</b>", styles['Heading3']))
+                        summary_data = []
+                        if summary.get('population'):
+                            summary_data.append(['Population:', summary.get('population', '')])
+                        if summary.get('intervention'):
+                            summary_data.append(['Intervention:', summary.get('intervention', '')])
+                        if summary.get('comparator'):
+                            summary_data.append(['Comparator:', summary.get('comparator', '')])
+                        if summary.get('outcomes'):
+                            summary_data.append(['Outcomes:', summary.get('outcomes', '')])
+                        if summary.get('main_findings'):
+                            summary_data.append(['Main Findings:', summary.get('main_findings', '')])
+                        if summary.get('sample_size'):
+                            summary_data.append(['Sample Size:', summary.get('sample_size', '')])
+                        if summary.get('notes'):
+                            summary_data.append(['Notes:', summary.get('notes', '')])
+                        
+                        if summary_data:
+                            summary_table = Table(summary_data, colWidths=[1.5*inch, 4.5*inch])
+                            summary_table.setStyle(TableStyle([
+                                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                            ]))
+                            story.append(summary_table)
+                
+                doc.build(story)
+                buffer.seek(0)
+                
+                response = make_response(buffer.read())
+                response.headers['Content-Type'] = 'application/pdf'
+                response.headers['Content-Disposition'] = f'attachment; filename="{project_name}_included_papers_{datetime.now().strftime("%Y%m%d")}.pdf"'
+                return response
+                
+            except ImportError:
+                return jsonify({"error": "PDF generation requires reportlab. Install with: pip install reportlab"}), 500
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500

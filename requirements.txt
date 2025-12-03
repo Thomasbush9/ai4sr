@@ -24,6 +24,7 @@ pandas==2.2.3
 pdfplumber==0.11.7
 PyMuPDF==1.26.0
 pdfminer.six==20250506
+reportlab==4.2.5
 
 # HTTP clients
 requests==2.32.3

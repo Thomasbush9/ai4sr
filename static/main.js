@@ -2490,6 +2490,105 @@ function updateScreeningMessage(message) {
   }
 }
 
+// Export functionality
+function initExport() {
+  const exportButton = document.getElementById('export-button');
+  const exportMenu = document.getElementById('export-menu');
+  const exportOptions = document.querySelectorAll('.export-option');
+  
+  if (!exportButton || !exportMenu) return;
+  
+  // Toggle dropdown
+  exportButton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isVisible = exportMenu.style.display === 'block';
+    exportMenu.style.display = isVisible ? 'none' : 'block';
+  });
+  
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!exportButton.contains(e.target) && !exportMenu.contains(e.target)) {
+      exportMenu.style.display = 'none';
+    }
+  });
+  
+  // Handle export option clicks
+  exportOptions.forEach(option => {
+    option.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const format = option.dataset.format;
+      await exportPapers(format);
+      exportMenu.style.display = 'none';
+    });
+  });
+}
+
+// Export papers in specified format
+async function exportPapers(format) {
+  let projectId = screeningProjectId;
+  if (!projectId) {
+    // Try to get project from input
+    const projectInput = document.getElementById('screening-project-id')?.value?.trim();
+    if (projectInput) {
+      try {
+        projectId = await getOrCreateProject(projectInput);
+        screeningProjectId = projectId;
+      } catch (e) {
+        updateScreeningStatus('Please enter a valid project name', 'error');
+        return;
+      }
+    } else {
+      updateScreeningStatus('Please enter a project name first', 'error');
+      return;
+    }
+  }
+  
+  // Show loading state
+  const exportButton = document.getElementById('export-button');
+  const originalText = exportButton.innerHTML;
+  exportButton.disabled = true;
+  exportButton.innerHTML = '<span class="export-icon">⏳</span><span class="export-text">Exporting...</span><span class="export-arrow">▼</span>';
+  
+  try {
+    const response = await fetch(`/api/projects/${projectId}/export?format=${format}`);
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Export failed');
+    }
+    
+    // Get filename from Content-Disposition header or generate one
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = `export_${new Date().toISOString().split('T')[0]}.${format === 'bibtex' ? 'bib' : format === 'ris' ? 'ris' : format}`;
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+      if (filenameMatch) {
+        filename = filenameMatch[1];
+      }
+    }
+    
+    // Download file
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    
+    updateScreeningStatus(`✓ Exported ${format.toUpperCase()} successfully`, 'success');
+    
+  } catch (error) {
+    updateScreeningStatus(`Error: ${error.message}`, 'error');
+    console.error('Export error:', error);
+  } finally {
+    exportButton.disabled = false;
+    exportButton.innerHTML = originalText;
+  }
+}
+
 // Initialize theme and start conversation
 initTheme();
 initSidebar();
@@ -2497,4 +2596,5 @@ initSettings();
 initDeleteProject();
 initPicoMode();
 initDbViewer();
+initExport();
 startConversation();

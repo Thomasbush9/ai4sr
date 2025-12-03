@@ -251,7 +251,23 @@
             <div id="results-view" class="results-view" style="display: none;">
               <div class="results-header">
                 <h2>📋 Included Papers & Summaries</h2>
-                <button id="close-results-button" class="screening-button screening-button-secondary">← Back to Screening</button>
+                <div class="results-header-actions">
+                  <div class="export-dropdown">
+                    <button id="export-button" class="screening-button screening-button-secondary">
+                      <span class="export-icon">📥</span>
+                      <span class="export-text">Export</span>
+                      <span class="export-arrow">▼</span>
+                    </button>
+                    <div id="export-menu" class="export-menu" style="display: none;">
+                      <button class="export-option" data-format="csv">📊 CSV</button>
+                      <button class="export-option" data-format="json">📄 JSON</button>
+                      <button class="export-option" data-format="bibtex">📚 BibTeX</button>
+                      <button class="export-option" data-format="ris">📋 RIS</button>
+                      <button class="export-option" data-format="pdf">📑 PDF</button>
+                    </div>
+                  </div>
+                  <button id="close-results-button" class="screening-button screening-button-secondary">← Back to Screening</button>
+                </div>
               </div>
               <div id="results-tabs" class="results-tabs">
                 <button class="results-tab active" data-tab="papers">📄 Papers</button>
