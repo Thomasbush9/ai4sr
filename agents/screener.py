@@ -29,6 +29,15 @@ LOW_YIELD_BATCH_COUNT = 5  # Rule B: check last N batches
 LOW_YIELD_BATCH_SIZE = 20  # Rule B: assume batch size for calculations
 LOW_YIELD_RATE_THRESHOLD = 0.02  # Rule B: stop if include rate < 2%
 
+# Classifier readiness thresholds
+MIN_SEED_LABELS = 100  # Minimum total labeled papers for auto-labeling
+MIN_POSITIVE_LABELS = 20  # Minimum INCLUDE labels
+MIN_NEGATIVE_LABELS = 20  # Minimum EXCLUDE labels
+
+# Auto-labeling thresholds
+INCLUDE_THRESHOLD = 0.8  # P(INCLUDE) >= 0.8 to auto-label as INCLUDE
+EXCLUDE_THRESHOLD = 0.2  # P(INCLUDE) <= 0.2 to auto-label as EXCLUDE
+
 # Default classifier type
 DEFAULT_CLASSIFIER = "random_forest"  # Options: "logistic", "svm", "random_forest", "naive_bayes"
 
@@ -306,4 +315,155 @@ def should_stop_screening(project_id: int) -> bool:
                 return True
         
         return False
+
+
+def classifier_ready(project_id: int) -> bool:
+    """
+    Check if classifier is ready for auto-labeling (enough seed labels).
+    
+    Args:
+        project_id: Project ID
+    
+    Returns:
+        True if classifier is ready (enough labeled papers with balanced classes)
+    """
+    with connect() as con:
+        labeled = get_labeled_papers(con, project_id)
+        
+        if len(labeled) < MIN_SEED_LABELS:
+            return False
+        
+        # Count INCLUDE and EXCLUDE
+        include_count = sum(1 for p in labeled if p.get("label") == "INCLUDE")
+        exclude_count = sum(1 for p in labeled if p.get("label") == "EXCLUDE")
+        
+        # Check minimums for both classes
+        if include_count < MIN_POSITIVE_LABELS:
+            return False
+        if exclude_count < MIN_NEGATIVE_LABELS:
+            return False
+        
+        return True
+
+
+def train_classifier(project_id: int, classifier_type: str = DEFAULT_CLASSIFIER) -> Optional[Pipeline]:
+    """
+    Train a classifier for a project. Reusable function that fetches labeled papers and trains model.
+    
+    Args:
+        project_id: Project ID
+        classifier_type: "logistic", "svm", "random_forest", "naive_bayes"
+    
+    Returns:
+        Trained pipeline or None if training fails
+    """
+    with connect() as con:
+        labeled = get_labeled_papers(con, project_id)
+    
+    if not labeled:
+        return None
+    
+    # Check cache first
+    cached_model = _get_cached_model(project_id)
+    if cached_model is not None:
+        return cached_model
+    
+    # Train model
+    model = _train_model(labeled, classifier_type=classifier_type)
+    
+    # Cache the model
+    if model is not None:
+        _cache_model(project_id, model)
+    
+    return model
+
+
+def auto_label_papers(
+    project_id: int,
+    classifier_type: str = DEFAULT_CLASSIFIER,
+    include_threshold: float = INCLUDE_THRESHOLD,
+    exclude_threshold: float = EXCLUDE_THRESHOLD
+) -> Dict:
+    """
+    Auto-label remaining unscreened papers using trained classifier.
+    
+    Args:
+        project_id: Project ID
+        classifier_type: Classifier type to use
+        include_threshold: Probability threshold for INCLUDE (default 0.8)
+        exclude_threshold: Probability threshold for EXCLUDE (default 0.2)
+    
+    Returns:
+        Dict with counts: auto_included, auto_excluded, borderline, still_unscreened
+    """
+    # Check classifier readiness
+    if not classifier_ready(project_id):
+        raise ValueError(
+            f"Classifier not ready. Need at least {MIN_SEED_LABELS} labeled papers "
+            f"with at least {MIN_POSITIVE_LABELS} INCLUDE and {MIN_NEGATIVE_LABELS} EXCLUDE."
+        )
+    
+    # Train classifier
+    model = train_classifier(project_id, classifier_type=classifier_type)
+    if model is None:
+        raise ValueError("Failed to train classifier. Check labeled data quality.")
+    
+    # Get all unscreened papers
+    with connect() as con:
+        # Query for papers with status UNSCREENED
+        cur = con.execute("""
+            SELECT p.id as paper_id, p.title, p.abstract
+            FROM papers p
+            LEFT JOIN screening_labels sl ON p.id = sl.paper_id AND sl.project_id = ?
+            WHERE p.project_id = ? AND sl.id IS NULL AND p.status = 'UNSCREENED'
+        """, (project_id, project_id))
+        cols = [c[0] for c in cur.description]
+        unscreened_papers = [dict(zip(cols, r)) for r in cur.fetchall()]
+    
+    if not unscreened_papers:
+        return {
+            "auto_included": 0,
+            "auto_excluded": 0,
+            "borderline": 0,
+            "still_unscreened": 0
+        }
+    
+    # Predict probabilities
+    probs = _predict_probabilities(model, unscreened_papers)
+    
+    # Apply thresholds and collect labels
+    labels_to_save = {}
+    auto_included = 0
+    auto_excluded = 0
+    borderline = 0
+    
+    for paper, prob in zip(unscreened_papers, probs):
+        if prob >= include_threshold:
+            labels_to_save[paper["paper_id"]] = "INCLUDE"
+            auto_included += 1
+        elif prob <= exclude_threshold:
+            labels_to_save[paper["paper_id"]] = "EXCLUDE"
+            auto_excluded += 1
+        else:
+            # Borderline - leave as UNSCREENED
+            borderline += 1
+    
+    # Save labels
+    if labels_to_save:
+        with connect() as con:
+            from db.repository import save_screening_labels
+            save_screening_labels(con, project_id, labels_to_save)
+            con.commit()
+        
+        # Clear cache to force retraining with new labels
+        clear_model_cache(project_id)
+    
+    still_unscreened = len(unscreened_papers) - auto_included - auto_excluded
+    
+    return {
+        "auto_included": auto_included,
+        "auto_excluded": auto_excluded,
+        "borderline": borderline,
+        "still_unscreened": still_unscreened
+    }
 

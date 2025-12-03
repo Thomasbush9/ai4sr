@@ -565,10 +565,14 @@ def get_screening_stats_endpoint(project_id):
     """Get screening statistics for a project."""
     try:
         from db.repository import get_screening_stats
+        from agents.screener import classifier_ready
         from webapp.db import get_db
         
         with get_db() as db:
             stats = get_screening_stats(db, project_id)
+        
+        # Add classifier readiness
+        stats["classifier_ready"] = classifier_ready(project_id)
         
         return jsonify(stats)
         
@@ -580,6 +584,88 @@ def get_screening_stats_endpoint(project_id):
 def get_screening_status_endpoint(project_id):
     """Get screening status for a project (alias for /stats with same response)."""
     return get_screening_stats_endpoint(project_id)
+
+
+@api_bp.post("/projects/<int:project_id>/screening/auto-label")
+def auto_label_papers_endpoint(project_id):
+    """Auto-label remaining unscreened papers using trained classifier."""
+    try:
+        from agents.screener import auto_label_papers
+        
+        classifier_type = request.args.get('classifier', 'random_forest', type=str)
+        
+        # Validate classifier_type
+        if classifier_type not in ('logistic', 'svm', 'random_forest', 'naive_bayes'):
+            return jsonify({"error": "classifier must be 'logistic', 'svm', 'random_forest', or 'naive_bayes'"}), 400
+        
+        # Optional thresholds in query params
+        include_threshold = request.args.get('include_threshold', 0.8, type=float)
+        exclude_threshold = request.args.get('exclude_threshold', 0.2, type=float)
+        
+        # Validate thresholds
+        if not 0.0 <= exclude_threshold < include_threshold <= 1.0:
+            return jsonify({"error": "Thresholds must satisfy 0 <= exclude_threshold < include_threshold <= 1"}), 400
+        
+        # Run auto-labeling
+        result = auto_label_papers(
+            project_id,
+            classifier_type=classifier_type,
+            include_threshold=include_threshold,
+            exclude_threshold=exclude_threshold
+        )
+        
+        return jsonify(result)
+        
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.post("/projects/<int:project_id>/agent-review")
+def agent_review_endpoint(project_id):
+    """Review included papers and generate structured summaries."""
+    try:
+        from agents.review_agent import review_included_papers
+        from webapp.db import get_db
+        
+        data = request.get_json(force=True) if request.is_json else {}
+        pico = data.get("pico")  # Optional PICO context
+        user_api_key = data.get("api_key")  # Optional API key
+        
+        # Run agent review
+        result = review_included_papers(
+            project_id=project_id,
+            pico=pico,
+            api_key=user_api_key
+        )
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.post("/projects/<int:project_id>/chat")
+def chat_endpoint(project_id):
+    """Chat endpoint for querying agent summaries and papers using RAG."""
+    try:
+        from agents.orchestrator import rag_answer
+        
+        data = request.get_json(force=True) if request.is_json else {}
+        question = data.get("question", "").strip()
+        user_api_key = data.get("api_key")  # Optional API key
+        
+        if not question:
+            return jsonify({"error": "question field is required"}), 400
+        
+        # Use existing rag_answer function which now works with summaries
+        answer = rag_answer(question, project_id, api_key=user_api_key)
+        
+        return jsonify({"answer": answer})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @api_bp.route("/db-viewer")

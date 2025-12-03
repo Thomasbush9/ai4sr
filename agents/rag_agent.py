@@ -204,6 +204,115 @@ class RAGAgent(dspy.Module):
             # Save to disk
             self._save_vector_db()
     
+    def _load_agent_summaries_from_db(self, project_id: int = None):
+        """Load agent summaries from SQLite database and generate embeddings if not already present."""
+        try:
+            from db.connection import connect
+            from db.repository import get_agent_summaries
+            
+            print(f"DEBUG: Loading agent summaries from SQLite database for project {project_id}...")
+            
+            with connect() as con:
+                if project_id is not None:
+                    summaries = get_agent_summaries(con, project_id)
+                    print(f"DEBUG: Project {project_id} has {len(summaries)} agent summaries")
+                else:
+                    print("DEBUG: Loading summaries for all projects not implemented yet")
+                    summaries = []
+                
+                if not summaries:
+                    print("DEBUG: No agent summaries found")
+                    return
+                
+                # Convert summaries to RAG format
+                summaries_for_rag = []
+                for summary in summaries:
+                    # Combine summary fields for embedding
+                    summary_text = (
+                        f"Paper: {summary.get('title', '')}\n"
+                        f"Population: {summary.get('population', '')}\n"
+                        f"Intervention: {summary.get('intervention', '')}\n"
+                        f"Comparator: {summary.get('comparator', '')}\n"
+                        f"Outcomes: {summary.get('outcomes', '')}\n"
+                        f"Main Findings: {summary.get('main_findings', '')}\n"
+                        f"Sample Size: {summary.get('sample_size', '')}"
+                    )
+                    
+                    summaries_for_rag.append({
+                        'summary_id': summary.get('summary_id'),
+                        'paper_id': summary.get('paper_id'),
+                        'project_id': summary.get('project_id'),
+                        'title': summary.get('title', ''),
+                        'text': summary_text,
+                        'population': summary.get('population', ''),
+                        'intervention': summary.get('intervention', ''),
+                        'comparator': summary.get('comparator', ''),
+                        'outcomes': summary.get('outcomes', ''),
+                        'main_findings': summary.get('main_findings', ''),
+                        'sample_size': summary.get('sample_size', ''),
+                        'type': 'agent_summary'  # Mark as summary vs paper
+                    })
+                
+                # Add summaries to RAG agent
+                self.add_summaries(summaries_for_rag, project_id)
+                print(f"DEBUG: Loaded {len(summaries_for_rag)} summaries into RAG agent")
+                
+        except Exception as e:
+            print(f"DEBUG: Warning - Failed to load agent summaries from database: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def add_summaries(self, summaries: List[Dict[str, Any]], project_id: int):
+        """Add agent summaries to the vector database with embeddings."""
+        # Check for existing summaries to avoid duplicates
+        existing_summary_ids = {
+            meta.get('summary_id') for meta in self.metadata 
+            if meta.get('type') == 'agent_summary'
+        }
+        
+        # Prepare texts for embedding
+        texts = []
+        summary_metadata = []
+        
+        for summary in summaries:
+            summary_id = summary.get('summary_id')
+            if summary_id in existing_summary_ids:
+                continue
+            
+            # Use the summary text for embedding
+            text = summary.get('text', '')
+            texts.append(text)
+            
+            summary_metadata.append({
+                'summary_id': summary_id,
+                'paper_id': summary.get('paper_id'),
+                'project_id': project_id,
+                'title': summary.get('title', ''),
+                'text': text,
+                'population': summary.get('population', ''),
+                'intervention': summary.get('intervention', ''),
+                'comparator': summary.get('comparator', ''),
+                'outcomes': summary.get('outcomes', ''),
+                'main_findings': summary.get('main_findings', ''),
+                'sample_size': summary.get('sample_size', ''),
+                'type': 'agent_summary'
+            })
+        
+        # Get embeddings using DSPy embedder
+        if texts:
+            new_embeddings = self.embedder(texts)
+            
+            # Add to existing database
+            if len(self.embeddings) == 0:
+                self.embeddings = new_embeddings
+                self.metadata = summary_metadata
+            else:
+                self.embeddings = np.vstack([self.embeddings, new_embeddings])
+                self.metadata.extend(summary_metadata)
+            
+            # Save to disk
+            self._save_vector_db()
+    
     def retrieve_relevant_papers(self, question: str, project_id: int, top_k: int = 5) -> List[Dict[str, Any]]:
         """Retrieve most relevant papers for a question."""
         if len(self.embeddings) == 0:
@@ -255,22 +364,40 @@ class RAGAgent(dspy.Module):
         if not relevant_papers:
             return "I don't have any relevant papers in the database for this project. Please run a literature review first to populate the database."
         
-        # Format context from retrieved papers
+        # Format context from retrieved papers and summaries
         context_parts = []
-        for i, paper in enumerate(relevant_papers, 1):
-            context_parts.append(f"Paper {i}:")
-            context_parts.append(f"Title: {paper.get('title', 'N/A')}")
-            context_parts.append(f"Authors: {paper.get('authors', 'N/A')}")
-            context_parts.append(f"Year: {paper.get('year', 'N/A')}")
-            context_parts.append(f"Venue: {paper.get('venue', 'N/A')}")
-            context_parts.append(f"Abstract: {paper.get('abstract', 'N/A')}")
-            if paper.get('status'):
-                context_parts.append(f"Status: {paper.get('status')}")
-            if paper.get('score'):
-                context_parts.append(f"Relevance Score: {paper.get('score')}")
-            if paper.get('rationale'):
-                context_parts.append(f"Rationale: {paper.get('rationale')}")
-            context_parts.append("")  # Empty line between papers
+        for i, item in enumerate(relevant_papers, 1):
+            if item.get('type') == 'agent_summary':
+                # This is an agent summary
+                context_parts.append(f"Summary {i}:")
+                context_parts.append(f"Paper Title: {item.get('title', 'N/A')}")
+                if item.get('population'):
+                    context_parts.append(f"Population: {item.get('population')}")
+                if item.get('intervention'):
+                    context_parts.append(f"Intervention: {item.get('intervention')}")
+                if item.get('comparator'):
+                    context_parts.append(f"Comparator: {item.get('comparator')}")
+                if item.get('outcomes'):
+                    context_parts.append(f"Outcomes: {item.get('outcomes')}")
+                if item.get('main_findings'):
+                    context_parts.append(f"Main Findings: {item.get('main_findings')}")
+                if item.get('sample_size'):
+                    context_parts.append(f"Sample Size: {item.get('sample_size')}")
+            else:
+                # This is a regular paper
+                context_parts.append(f"Paper {i}:")
+                context_parts.append(f"Title: {item.get('title', 'N/A')}")
+                context_parts.append(f"Authors: {item.get('authors', 'N/A')}")
+                context_parts.append(f"Year: {item.get('year', 'N/A')}")
+                context_parts.append(f"Venue: {item.get('venue', 'N/A')}")
+                context_parts.append(f"Abstract: {item.get('abstract', 'N/A')}")
+                if item.get('status'):
+                    context_parts.append(f"Status: {item.get('status')}")
+                if item.get('score'):
+                    context_parts.append(f"Relevance Score: {item.get('score')}")
+                if item.get('rationale'):
+                    context_parts.append(f"Rationale: {item.get('rationale')}")
+            context_parts.append("")  # Empty line between items
         
         context = "\n".join(context_parts)
         

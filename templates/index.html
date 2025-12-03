@@ -231,7 +231,13 @@
                 <h3>🎉 Screening Completed!</h3>
                 <p>All papers have been reviewed and labeled.</p>
               </div>
-              <button id="final-review-button" class="screening-button screening-button-primary">📊 Send Included Papers to Final Agent Review</button>
+              <div id="classifier-status" class="classifier-status" style="display: none;">
+                <p id="classifier-status-text"></p>
+              </div>
+              <div class="completion-actions">
+                <button id="auto-label-button" class="screening-button screening-button-secondary" style="display: none;">🤖 Auto-Label Remaining Papers</button>
+                <button id="final-review-button" class="screening-button screening-button-primary">📊 Start Agent Review</button>
+              </div>
             </div>
           </div>
         </div>

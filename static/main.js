@@ -1436,9 +1436,24 @@ function initScreeningMode() {
   }
   
   if (finalReviewBtn) {
-    finalReviewBtn.addEventListener('click', () => {
-      // TODO: Implement final review action
-      alert('Final review feature coming soon!');
+    finalReviewBtn.addEventListener('click', async () => {
+      if (!screeningProjectId) {
+        updateScreeningStatus('Please start a screening session first', 'error');
+        return;
+      }
+      await startAgentReview(screeningProjectId);
+    });
+  }
+  
+  // Auto-label button
+  const autoLabelBtn = document.getElementById('auto-label-button');
+  if (autoLabelBtn) {
+    autoLabelBtn.addEventListener('click', async () => {
+      if (!screeningProjectId) {
+        updateScreeningStatus('Please start a screening session first', 'error');
+        return;
+      }
+      await autoLabelPapers(screeningProjectId);
     });
   }
   
@@ -1708,6 +1723,14 @@ async function updateProgress(projectId) {
     if (counterIncluded) counterIncluded.textContent = stats.n_included || 0;
     if (counterExcluded) counterExcluded.textContent = stats.n_excluded || 0;
     
+    // Check classifier readiness during screening
+    if (stats.classifier_ready && stats.n_unlabeled > 0) {
+      const messageEl = document.getElementById('screening-message');
+      if (messageEl) {
+        messageEl.textContent = `${stats.n_unlabeled} papers remaining. Classifier ready for auto-labeling.`;
+      }
+    }
+    
   } catch (error) {
     console.error('Error updating progress:', error);
   }
@@ -1755,10 +1778,141 @@ async function showCompletionState(projectId) {
       }
     }
     
+    // Check classifier readiness and show auto-label button if ready
+    if (stats.classifier_ready !== undefined) {
+      await checkClassifierReadiness(projectId);
+    }
+    
     updateScreeningStatus('Screening complete!', 'success');
     await updateProgress(projectId); // Update progress one last time
   } catch (error) {
     console.error('Error showing completion state:', error);
+  }
+}
+
+// Check classifier readiness
+async function checkClassifierReadiness(projectId) {
+  try {
+    const stats = await fetchScreeningStats(projectId);
+    const classifierStatusEl = document.getElementById('classifier-status');
+    const classifierStatusText = document.getElementById('classifier-status-text');
+    const autoLabelButton = document.getElementById('auto-label-button');
+    
+    if (stats.classifier_ready) {
+      // Classifier is ready
+      classifierStatusEl.style.display = 'block';
+      classifierStatusText.textContent = '✓ Classifier ready for auto-labeling';
+      classifierStatusText.className = 'classifier-status-text classifier-ready';
+      
+      // Show auto-label button if there are unlabeled papers
+      if (stats.n_unlabeled > 0) {
+        autoLabelButton.style.display = 'inline-block';
+      } else {
+        autoLabelButton.style.display = 'none';
+      }
+    } else {
+      // Classifier not ready yet
+      classifierStatusEl.style.display = 'block';
+      classifierStatusText.textContent = `⚠ Classifier not ready. Need more labeled papers (${stats.n_labeled} labeled).`;
+      classifierStatusText.className = 'classifier-status-text classifier-not-ready';
+      autoLabelButton.style.display = 'none';
+    }
+  } catch (error) {
+    console.error('Error checking classifier readiness:', error);
+  }
+}
+
+// Auto-label papers
+async function autoLabelPapers(projectId) {
+  const button = document.getElementById('auto-label-button');
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = '🤖 Auto-labeling...';
+  updateScreeningStatus('Auto-labeling papers...', 'info');
+  
+  try {
+    const response = await fetch(`/api/projects/${projectId}/screening/auto-label?classifier=random_forest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to auto-label papers');
+    }
+    
+    const result = await response.json();
+    updateScreeningStatus(
+      `✓ Auto-labeled: ${result.auto_included} included, ${result.auto_excluded} excluded, ${result.borderline} borderline`,
+      'success'
+    );
+    
+    // Update progress
+    await updateProgress(projectId);
+    
+    // Re-check classifier readiness
+    await checkClassifierReadiness(projectId);
+    
+  } catch (error) {
+    updateScreeningStatus(`Error: ${error.message}`, 'error');
+    console.error('Error auto-labeling papers:', error);
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
+// Start agent review
+async function startAgentReview(projectId) {
+  const button = document.getElementById('final-review-button');
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = '📊 Reviewing...';
+  updateScreeningStatus('Starting agent review...', 'info');
+  
+  try {
+    // Get PICO if available
+    let pico = null;
+    try {
+      const picoResponse = await fetch(`/api/projects/${projectId}/pico`);
+      if (picoResponse.ok) {
+        pico = await picoResponse.json();
+      }
+    } catch (e) {
+      // PICO not available, continue without it
+    }
+    
+    const requestBody = { pico };
+    
+    // Get API key from settings if available
+    const apiKeyInput = document.getElementById('openai-key');
+    if (apiKeyInput && apiKeyInput.value) {
+      requestBody.api_key = apiKeyInput.value;
+    }
+    
+    const response = await fetch(`/api/projects/${projectId}/agent-review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody)
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to start agent review');
+    }
+    
+    const result = await response.json();
+    updateScreeningStatus(
+      `✓ Agent review complete: ${result.n_summarized} papers summarized${result.overview_generated ? ', overview generated' : ''}`,
+      'success'
+    );
+    
+  } catch (error) {
+    updateScreeningStatus(`Error: ${error.message}`, 'error');
+    console.error('Error starting agent review:', error);
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
   }
 }
 

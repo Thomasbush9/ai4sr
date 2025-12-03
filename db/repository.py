@@ -453,6 +453,41 @@ def get_unlabeled_papers(con: sqlite3.Connection, project_id: int, limit: Option
     cols = [c[0] for c in cur.description]
     return [dict(zip(cols, r)) for r in cur.fetchall()]
 
+def get_included_papers(con: sqlite3.Connection, project_id: int) -> List[Dict]:
+    """
+    Get all papers labeled as INCLUDE for a project.
+    
+    Returns:
+        List of dicts with paper details: id, title, abstract, year, venue, authors, etc.
+    """
+    query = """
+        SELECT 
+            p.id as paper_id,
+            p.title,
+            p.abstract,
+            p.year,
+            p.venue,
+            p.authors,
+            p.pmid,
+            p.pmcid,
+            p.doi,
+            p.url,
+            p.pubmed_url,
+            p.doi_url,
+            p.status,
+            p.score,
+            p.rationale,
+            p.added_at
+        FROM papers p
+        INNER JOIN screening_labels sl ON p.id = sl.paper_id AND sl.project_id = ?
+        WHERE sl.label = 'INCLUDE'
+        ORDER BY p.added_at DESC
+    """
+    
+    cur = con.execute(query, (project_id,))
+    cols = [c[0] for c in cur.description]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
 def save_screening_labels(con: sqlite3.Connection, project_id: int, labels: Dict[int, str]) -> Dict[str, int]:
     """
     Save screening labels for papers. Updates both screening_labels table and papers.status.
@@ -586,4 +621,142 @@ def get_recent_batch_statistics(con: sqlite3.Connection, project_id: int, batch_
         "total_papers_in_batches": total,
         "included_in_batches": included
     }
+
+def save_agent_summary(
+    con: sqlite3.Connection,
+    project_id: int,
+    paper_id: int,
+    summary_data: Dict
+) -> int:
+    """
+    Save or update an agent summary for a paper.
+    
+    Args:
+        con: Database connection
+        project_id: Project ID
+        paper_id: Paper ID
+        summary_data: Dict with keys: population, intervention, comparator, outcomes, 
+                     main_findings, sample_size, notes
+    
+    Returns:
+        ID of saved summary
+    """
+    now = datetime.utcnow().isoformat()
+    
+    # Insert or replace summary
+    cur = con.execute("""
+        INSERT OR REPLACE INTO agent_summaries 
+        (project_id, paper_id, population, intervention, comparator, outcomes, 
+         main_findings, sample_size, notes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        project_id,
+        paper_id,
+        summary_data.get("population"),
+        summary_data.get("intervention"),
+        summary_data.get("comparator"),
+        summary_data.get("outcomes"),
+        summary_data.get("main_findings"),
+        summary_data.get("sample_size"),
+        summary_data.get("notes"),
+        now
+    ))
+    
+    return cur.lastrowid
+
+
+def save_project_overview(
+    con: sqlite3.Connection,
+    project_id: int,
+    overview_json: Dict
+) -> int:
+    """
+    Save or update project agent overview.
+    
+    Args:
+        con: Database connection
+        project_id: Project ID
+        overview_json: Dict containing overview data
+    
+    Returns:
+        ID of saved overview
+    """
+    now = datetime.utcnow().isoformat()
+    overview_text = json.dumps(overview_json)
+    
+    # Insert or replace overview
+    cur = con.execute("""
+        INSERT OR REPLACE INTO project_agent_overview 
+        (project_id, overview_json, created_at)
+        VALUES (?, ?, ?)
+    """, (project_id, overview_text, now))
+    
+    return cur.lastrowid
+
+
+def get_agent_summaries(con: sqlite3.Connection, project_id: int) -> List[Dict]:
+    """
+    Get all agent summaries for a project.
+    
+    Args:
+        con: Database connection
+        project_id: Project ID
+    
+    Returns:
+        List of dicts with summary data and paper info
+    """
+    query = """
+        SELECT 
+            a.id as summary_id,
+            a.project_id,
+            a.paper_id,
+            a.population,
+            a.intervention,
+            a.comparator,
+            a.outcomes,
+            a.main_findings,
+            a.sample_size,
+            a.notes,
+            a.created_at,
+            p.title,
+            p.abstract,
+            p.year,
+            p.venue,
+            p.authors
+        FROM agent_summaries a
+        INNER JOIN papers p ON a.paper_id = p.id
+        WHERE a.project_id = ?
+        ORDER BY a.created_at DESC
+    """
+    
+    cur = con.execute(query, (project_id,))
+    cols = [c[0] for c in cur.description]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def get_project_overview(con: sqlite3.Connection, project_id: int) -> Optional[Dict]:
+    """
+    Get project agent overview if it exists.
+    
+    Args:
+        con: Database connection
+        project_id: Project ID
+    
+    Returns:
+        Dict with overview data or None
+    """
+    cur = con.execute("""
+        SELECT overview_json, created_at
+        FROM project_agent_overview
+        WHERE project_id = ?
+    """, (project_id,))
+    
+    row = cur.fetchone()
+    if row:
+        overview_json_text = row[0]
+        try:
+            return json.loads(overview_json_text)
+        except json.JSONDecodeError:
+            return None
+    return None
 

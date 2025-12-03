@@ -451,6 +451,9 @@ def rag_answer(question: str, project_id: int, db_conn=None, top_k: int = 5, api
         # Load papers for the specific project only
         rag_agent._load_papers_from_db(project_id)
         
+        # Also load agent summaries if available
+        rag_agent._load_agent_summaries_from_db(project_id)
+        
         # Answer the question using RAG
         answer = rag_agent.forward(question, project_id, top_k)
         

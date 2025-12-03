@@ -131,3 +131,32 @@ CREATE TABLE IF NOT EXISTS screening_labels (
 CREATE INDEX IF NOT EXISTS idx_screening_labels_project ON screening_labels(project_id);
 CREATE INDEX IF NOT EXISTS idx_screening_labels_paper ON screening_labels(paper_id);
 CREATE INDEX IF NOT EXISTS idx_screening_labels_project_paper ON screening_labels(project_id, paper_id);
+
+-- Agent summaries table for structured review summaries
+CREATE TABLE IF NOT EXISTS agent_summaries (
+  id              INTEGER PRIMARY KEY,
+  project_id      INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  paper_id        INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+  population      TEXT,
+  intervention    TEXT,
+  comparator      TEXT,
+  outcomes        TEXT,
+  main_findings   TEXT,
+  sample_size     TEXT,
+  notes           TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(project_id, paper_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_summaries_project ON agent_summaries(project_id);
+CREATE INDEX IF NOT EXISTS idx_agent_summaries_paper ON agent_summaries(paper_id);
+
+-- Project agent overview table for global synthesis
+CREATE TABLE IF NOT EXISTS project_agent_overview (
+  id              INTEGER PRIMARY KEY,
+  project_id      INTEGER NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+  overview_json   TEXT NOT NULL,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_agent_overview_project ON project_agent_overview(project_id);
