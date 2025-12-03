@@ -574,6 +574,19 @@ def get_screening_stats_endpoint(project_id):
         # Add classifier readiness
         stats["classifier_ready"] = classifier_ready(project_id)
         
+        # Check if cold-start was used (any labels with source='cold_agent')
+        # Handle case where source column might not exist yet
+        try:
+            cold_start_check = db.execute("""
+                SELECT COUNT(*) as count
+                FROM screening_labels
+                WHERE project_id = ? AND source = 'cold_agent'
+            """, (project_id,)).fetchone()
+            stats["cold_start_used"] = (cold_start_check["count"] > 0) if cold_start_check else False
+        except Exception:
+            # Source column doesn't exist yet, default to False
+            stats["cold_start_used"] = False
+        
         return jsonify(stats)
         
     except Exception as e:
@@ -622,6 +635,47 @@ def auto_label_papers_endpoint(project_id):
         return jsonify({"error": str(e)}), 500
 
 
+@api_bp.post("/projects/<int:project_id>/screening/cold-start")
+def cold_start_endpoint(project_id):
+    """Run cold-start agent to label initial papers."""
+    try:
+        from agents.cold_start_agent import run_cold_start
+        from db.repository import get_unlabeled_papers
+        from webapp.db import get_db
+        
+        # Get API key and n from request if provided
+        data = request.get_json(force=True) if request.is_json else {}
+        api_key = data.get("api_key")
+        n = data.get("n", 10)
+        
+        # Validate n
+        n = max(1, min(50, int(n)))  # Clamp between 1 and 50
+        
+        # Check if project exists and has PICO
+        with get_db() as db:
+            # Check if project exists
+            project = db.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
+            if not project:
+                return jsonify({"error": "Project not found"}), 404
+            
+            # Check if there are enough UNSCREENED papers
+            unlabeled = get_unlabeled_papers(db, project_id, limit=n)
+            if len(unlabeled) < n:
+                return jsonify({
+                    "error": f"Not enough unscreened papers. Found {len(unlabeled)}, requested {n}."
+                }), 400
+        
+        # Run cold-start
+        result = run_cold_start(project_id, n=n, api_key=api_key)
+        
+        return jsonify(result)
+        
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @api_bp.post("/projects/<int:project_id>/agent-review")
 def agent_review_endpoint(project_id):
     """Review included papers and generate structured summaries."""
@@ -641,6 +695,84 @@ def agent_review_endpoint(project_id):
         )
         
         return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.get("/projects/<int:project_id>/included-papers")
+def get_included_papers_endpoint(project_id):
+    """Get all included papers with their summaries."""
+    try:
+        from db.repository import get_included_papers, get_agent_summaries
+        from webapp.db import get_db
+        
+        with get_db() as db:
+            # Get included papers
+            papers = get_included_papers(db, project_id)
+            
+            # Get summaries
+            summaries = get_agent_summaries(db, project_id)
+            
+            # Create a map of paper_id -> summary
+            summary_map = {s["paper_id"]: s for s in summaries}
+            
+            # Combine papers with summaries
+            result = []
+            for paper in papers:
+                paper_id = paper["paper_id"]
+                summary = summary_map.get(paper_id)
+                
+                # Ensure all metadata fields are included
+                paper_data = {
+                    "id": paper_id,
+                    "title": paper.get("title", "") or "",
+                    "abstract": paper.get("abstract", "") or "",
+                    "authors": paper.get("authors", "") or "",
+                    "year": paper.get("year"),
+                    "venue": paper.get("venue", "") or "",
+                    "doi": paper.get("doi", "") or "",
+                    "pmid": paper.get("pmid", "") or "",
+                    "pmcid": paper.get("pmcid", "") or "",
+                    "url": paper.get("url", "") or "",
+                    "pubmed_url": paper.get("pubmed_url", "") or "",
+                    "doi_url": paper.get("doi_url", "") or "",
+                    "summary": None
+                }
+                
+                if summary:
+                    paper_data["summary"] = {
+                        "population": summary.get("population", "") or "",
+                        "intervention": summary.get("intervention", "") or "",
+                        "comparator": summary.get("comparator", "") or "",
+                        "outcomes": summary.get("outcomes", "") or "",
+                        "main_findings": summary.get("main_findings", "") or "",
+                        "sample_size": summary.get("sample_size", "") or "",
+                        "notes": summary.get("notes", "") or ""
+                    }
+                
+                result.append(paper_data)
+            
+            return jsonify({"papers": result})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@api_bp.get("/projects/<int:project_id>/overview")
+def get_project_overview_endpoint(project_id):
+    """Get project overview/synthesis."""
+    try:
+        from db.repository import get_project_overview
+        from webapp.db import get_db
+        
+        with get_db() as db:
+            overview = get_project_overview(db, project_id)
+            
+            if not overview:
+                return jsonify({"error": "No overview found for this project. Run agent review first."}), 404
+            
+            return jsonify(overview)
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500

@@ -492,6 +492,11 @@ function updateInputSection() {
                      document.getElementById("pico-project-id")?.value || "";
     if (projectId) {
       document.getElementById("screening-project-id").value = projectId;
+      // Check button visibility if project exists
+      getOrCreateProject(projectId).then(id => {
+        screeningProjectId = id;
+        updateButtonVisibility(id).catch(console.error);
+      }).catch(console.error);
     }
     // Initialize screening mode
     initScreeningMode();
@@ -1409,9 +1414,43 @@ function initScreeningMode() {
   const submitBtn = document.getElementById('submit-batch');
   const finalReviewBtn = document.getElementById('final-review-button');
   
+  // Check button visibility when project input changes
+  const projectInput = document.getElementById('screening-project-id');
+  if (projectInput) {
+    // Check on blur (when user leaves the input field)
+    projectInput.addEventListener('blur', async () => {
+      const projectName = projectInput.value?.trim();
+      if (projectName) {
+        try {
+          const projectId = await getOrCreateProject(projectName);
+          screeningProjectId = projectId;
+          await updateButtonVisibility(projectId);
+        } catch (e) {
+          // Project might not exist yet, that's okay
+          console.log('Could not check button visibility:', e);
+        }
+      }
+    });
+    
+    // Also check when Enter is pressed
+    projectInput.addEventListener('keypress', async (e) => {
+      if (e.key === 'Enter') {
+        const projectName = projectInput.value?.trim();
+        if (projectName) {
+          try {
+            const projectId = await getOrCreateProject(projectName);
+            screeningProjectId = projectId;
+            await updateButtonVisibility(projectId);
+          } catch (e) {
+            console.log('Could not check button visibility:', e);
+          }
+        }
+      }
+    });
+  }
+  
   if (startBtn) {
     startBtn.addEventListener('click', async () => {
-      const projectInput = document.getElementById('screening-project-id');
       const projectName = projectInput?.value?.trim();
       if (!projectName) {
         updateScreeningStatus('Please enter a project name', 'error');
@@ -1445,6 +1484,98 @@ function initScreeningMode() {
     });
   }
   
+  // View results button (in completion state)
+  const viewResultsBtn = document.getElementById('view-results-button');
+  if (viewResultsBtn) {
+    viewResultsBtn.addEventListener('click', async () => {
+      let projectId = screeningProjectId;
+      if (!projectId) {
+        // Try to get project from input
+        const projectInput = document.getElementById('screening-project-id')?.value?.trim();
+        if (projectInput) {
+          try {
+            projectId = await getOrCreateProject(projectInput);
+            screeningProjectId = projectId;
+          } catch (e) {
+            updateScreeningStatus('Please enter a valid project name', 'error');
+            return;
+          }
+        } else {
+          updateScreeningStatus('Please enter a project name first', 'error');
+          return;
+        }
+      }
+      await showResultsView(projectId);
+    });
+  }
+  
+  // View results header button (always accessible)
+  const viewResultsHeaderBtn = document.getElementById('view-results-header-button');
+  if (viewResultsHeaderBtn) {
+    viewResultsHeaderBtn.addEventListener('click', async () => {
+      let projectId = screeningProjectId;
+      if (!projectId) {
+        // Try to get project from input
+        const projectInput = document.getElementById('screening-project-id')?.value?.trim();
+        if (projectInput) {
+          try {
+            projectId = await getOrCreateProject(projectInput);
+            screeningProjectId = projectId;
+          } catch (e) {
+            updateScreeningStatus('Please enter a valid project name', 'error');
+            return;
+          }
+        } else {
+          updateScreeningStatus('Please enter a project name first', 'error');
+          return;
+        }
+      }
+      await showResultsView(projectId);
+    });
+  }
+  
+  // Close results button
+  const closeResultsBtn = document.getElementById('close-results-button');
+  if (closeResultsBtn) {
+    closeResultsBtn.addEventListener('click', () => {
+      document.getElementById('results-view').style.display = 'none';
+      // Show appropriate section based on state
+      const completionState = document.getElementById('completion-state');
+      const papersContainer = document.getElementById('papers-container');
+      if (completionState && completionState.style.display !== 'none') {
+        completionState.style.display = 'block';
+      } else if (papersContainer && papersContainer.style.display !== 'none') {
+        papersContainer.style.display = 'block';
+        document.getElementById('screening-actions').style.display = 'block';
+        document.getElementById('screening-progress').style.display = 'block';
+      }
+    });
+  }
+  
+  // Results tabs
+  const resultsTabs = document.querySelectorAll('.results-tab');
+  resultsTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const tabName = tab.dataset.tab;
+      // Update active tab
+      resultsTabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      
+      // Update content
+      document.querySelectorAll('.results-tab-content').forEach(content => {
+        content.classList.remove('active');
+      });
+      document.getElementById(`${tabName}-tab-content`).classList.add('active');
+      
+      // Load content if needed
+      if (tabName === 'papers' && screeningProjectId) {
+        loadIncludedPapers(screeningProjectId);
+      } else if (tabName === 'overview' && screeningProjectId) {
+        loadProjectOverview(screeningProjectId);
+      }
+    });
+  });
+  
   // Auto-label button
   const autoLabelBtn = document.getElementById('auto-label-button');
   if (autoLabelBtn) {
@@ -1454,6 +1585,81 @@ function initScreeningMode() {
         return;
       }
       await autoLabelPapers(screeningProjectId);
+    });
+  }
+  
+  // Cold-start button
+  const coldStartBtn = document.getElementById('cold-start-button');
+  if (coldStartBtn) {
+    coldStartBtn.addEventListener('click', async () => {
+      let projectId = screeningProjectId;
+      if (!projectId) {
+        // Try to get project from input
+        const projectInput = document.getElementById('screening-project-id')?.value?.trim();
+        if (projectInput) {
+          try {
+            projectId = await getOrCreateProject(projectInput);
+            screeningProjectId = projectId;
+          } catch (e) {
+            updateScreeningStatus('Please enter a valid project name', 'error');
+            return;
+          }
+        } else {
+          updateScreeningStatus('Please enter a project name first', 'error');
+          return;
+        }
+      }
+      await runColdStart(projectId);
+    });
+  }
+  
+  // Review included papers button
+  const reviewIncludedBtn = document.getElementById('review-included-button');
+  if (reviewIncludedBtn) {
+    reviewIncludedBtn.addEventListener('click', async () => {
+      if (!screeningProjectId) {
+        // Try to get project from input
+        const projectInput = document.getElementById('screening-project-id')?.value?.trim();
+        if (projectInput) {
+          try {
+            const projectId = await getOrCreateProject(projectInput);
+            screeningProjectId = projectId;
+            await startAgentReview(projectId);
+            return;
+          } catch (e) {
+            updateScreeningStatus('Please enter a valid project name', 'error');
+            return;
+          }
+        }
+        updateScreeningStatus('Please enter a project name first', 'error');
+        return;
+      }
+      await startAgentReview(screeningProjectId);
+    });
+  }
+  
+  // Auto-label-all button (in header)
+  const autoLabelAllBtn = document.getElementById('auto-label-all-button');
+  if (autoLabelAllBtn) {
+    autoLabelAllBtn.addEventListener('click', async () => {
+      let projectId = screeningProjectId;
+      if (!projectId) {
+        // Try to get project from input
+        const projectInput = document.getElementById('screening-project-id')?.value?.trim();
+        if (projectInput) {
+          try {
+            projectId = await getOrCreateProject(projectInput);
+            screeningProjectId = projectId;
+          } catch (e) {
+            updateScreeningStatus('Please enter a valid project name', 'error');
+            return;
+          }
+        } else {
+          updateScreeningStatus('Please enter a project name first', 'error');
+          return;
+        }
+      }
+      await autoLabelAllPapers(projectId);
     });
   }
   
@@ -1497,6 +1703,7 @@ async function startScreening(projectId) {
   
   // Load initial stats
   await updateProgress(projectId);
+  await updateButtonVisibility(projectId);
   
   // Load first batch
   await loadScreeningBatch(projectId);
@@ -1543,6 +1750,9 @@ async function loadScreeningBatch(projectId) {
       }
     }
     
+    // Update button visibility
+    await updateButtonVisibility(projectId);
+    
     updateScreeningStatus('', '');
     
   } catch (error) {
@@ -1570,9 +1780,19 @@ function renderPaperCard(paper, index) {
   card.dataset.paperId = paper.id;
   
   const prob = paper.predicted_probability;
-  const probBadge = prob !== null && prob !== undefined
-    ? `<span class="prob-badge ${prob > 0.5 ? 'prob-include' : 'prob-exclude'}">${(prob * 100).toFixed(0)}% relevant</span>`
-    : '';
+  let probBadge = '';
+  if (prob !== null && prob !== undefined) {
+    const probPercent = (prob * 100).toFixed(0);
+    let probClass = 'prob-medium';
+    if (prob >= 0.7) {
+      probClass = 'prob-high';
+    } else if (prob <= 0.3) {
+      probClass = 'prob-low';
+    }
+    probBadge = `<span class="prob-badge ${probClass}">${probPercent}% likely to include</span>`;
+  } else {
+    probBadge = `<span class="prob-badge prob-na">No prediction (cold start)</span>`;
+  }
   
   const source = paper.venue || paper.source || 'Unknown';
   const year = paper.year || 'N/A';
@@ -1679,8 +1899,9 @@ async function submitBatch(projectId) {
     paperDecisions = {};
     document.getElementById('papers-container').innerHTML = '';
     
-    // Update progress
+    // Update progress and button visibility
     await updateProgress(projectId);
+    await updateButtonVisibility(projectId);
     
     // Auto-fetch next batch
     setTimeout(async () => {
@@ -1907,6 +2128,15 @@ async function startAgentReview(projectId) {
       'success'
     );
     
+    // Show view results button if we have included papers
+    const viewResultsBtn = document.getElementById('view-results-button');
+    if (viewResultsBtn && result.n_summarized > 0) {
+      viewResultsBtn.style.display = 'inline-block';
+    }
+    
+    // Update button visibility
+    await updateButtonVisibility(screeningProjectId);
+    
   } catch (error) {
     updateScreeningStatus(`Error: ${error.message}`, 'error');
     console.error('Error starting agent review:', error);
@@ -1923,6 +2153,333 @@ function updateScreeningStatus(message, type) {
   
   statusEl.textContent = message;
   statusEl.className = `screening-status ${type}`;
+}
+
+// Run cold-start agent
+async function runColdStart(projectId) {
+  const button = document.getElementById('cold-start-button');
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = '🧊 Running...';
+  updateScreeningStatus('Running cold-start agent...', 'info');
+  
+  try {
+    // Get API key from settings if available
+    const apiKeyInput = document.getElementById('openai-key');
+    const requestBody = {};
+    if (apiKeyInput && apiKeyInput.value) {
+      requestBody.api_key = apiKeyInput.value;
+    }
+    requestBody.n = 10;
+    
+    const response = await fetch(`/api/projects/${projectId}/screening/cold-start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody)
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to run cold-start agent');
+    }
+    
+    const result = await response.json();
+    updateScreeningStatus(
+      `✓ Cold-start complete: ${result.n_labeled_by_agent} papers labeled (${result.included_count} included, ${result.excluded_count} excluded)`,
+      'success'
+    );
+    
+    // Update progress and hide button
+    await updateProgress(projectId);
+    await updateButtonVisibility(projectId);
+    
+    // Reload batch if screening is active
+    if (document.getElementById('papers-container').style.display !== 'none') {
+      await loadScreeningBatch(projectId);
+    }
+    
+  } catch (error) {
+    updateScreeningStatus(`Error: ${error.message}`, 'error');
+    console.error('Error running cold-start:', error);
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
+// Auto-label all remaining papers
+async function autoLabelAllPapers(projectId) {
+  const button = document.getElementById('auto-label-all-button');
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = '🤖 Auto-labeling all...';
+  updateScreeningStatus('Auto-labeling all remaining papers...', 'info');
+  
+  try {
+    const response = await fetch(`/api/projects/${projectId}/screening/auto-label?classifier=random_forest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to auto-label papers');
+    }
+    
+    const result = await response.json();
+    updateScreeningStatus(
+      `✓ Auto-labeled: ${result.auto_included} included, ${result.auto_excluded} excluded, ${result.borderline} borderline, ${result.still_unscreened} still unscreened`,
+      'success'
+    );
+    
+    // Update progress
+    await updateProgress(projectId);
+    await updateButtonVisibility(projectId);
+    
+    // Reload batch if screening is active
+    if (document.getElementById('papers-container').style.display !== 'none') {
+      await loadScreeningBatch(projectId);
+    }
+    
+  } catch (error) {
+    updateScreeningStatus(`Error: ${error.message}`, 'error');
+    console.error('Error auto-labeling all papers:', error);
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
+// Update button visibility based on project state
+async function updateButtonVisibility(projectId) {
+  try {
+    const stats = await fetchScreeningStats(projectId);
+    
+    // Check if PICO exists
+    let hasPico = false;
+    try {
+      const picoResponse = await fetch(`/api/projects/${projectId}/pico`);
+      hasPico = picoResponse.ok;
+    } catch (e) {
+      hasPico = false;
+    }
+    
+    // Cold-start button: show if PICO exists, unscreened papers exist, and not already used
+    const coldStartBtn = document.getElementById('cold-start-button');
+    if (coldStartBtn) {
+      const coldStartUsed = stats.cold_start_used || false;
+      if (hasPico && stats.n_unlabeled > 0 && !coldStartUsed) {
+        coldStartBtn.style.display = 'inline-block';
+      } else {
+        coldStartBtn.style.display = 'none';
+      }
+    }
+    
+    // Review button: show if there are included papers
+    const reviewBtn = document.getElementById('review-included-button');
+    if (reviewBtn) {
+      if (stats.n_included > 0) {
+        reviewBtn.style.display = 'inline-block';
+      } else {
+        reviewBtn.style.display = 'none';
+      }
+    }
+    
+    // View results button (in completion state): show if there are included papers
+    const viewResultsBtn = document.getElementById('view-results-button');
+    if (viewResultsBtn) {
+      if (stats.n_included > 0) {
+        viewResultsBtn.style.display = 'inline-block';
+      } else {
+        viewResultsBtn.style.display = 'none';
+      }
+    }
+    
+    // View results header button: show if there are included papers
+    const viewResultsHeaderBtn = document.getElementById('view-results-header-button');
+    if (viewResultsHeaderBtn) {
+      if (stats.n_included > 0) {
+        viewResultsHeaderBtn.style.display = 'inline-block';
+      } else {
+        viewResultsHeaderBtn.style.display = 'none';
+      }
+    }
+    
+    // Auto-label-all button: show if classifier ready and unscreened papers exist
+    const autoLabelAllBtn = document.getElementById('auto-label-all-button');
+    if (autoLabelAllBtn) {
+      if (stats.classifier_ready && stats.n_unlabeled > 0) {
+        autoLabelAllBtn.style.display = 'inline-block';
+      } else {
+        autoLabelAllBtn.style.display = 'none';
+      }
+    }
+  } catch (error) {
+    console.error('Error updating button visibility:', error);
+  }
+}
+
+// Show results view
+async function showResultsView(projectId) {
+  // Hide completion state if it exists
+  const completionState = document.getElementById('completion-state');
+  if (completionState) {
+    completionState.style.display = 'none';
+  }
+  
+  // Hide other sections
+  document.getElementById('papers-container').style.display = 'none';
+  document.getElementById('screening-actions').style.display = 'none';
+  document.getElementById('screening-progress').style.display = 'none';
+  
+  // Show results view
+  document.getElementById('results-view').style.display = 'block';
+  
+  // Load papers tab by default
+  await loadIncludedPapers(projectId);
+}
+
+// Load included papers with summaries
+async function loadIncludedPapers(projectId) {
+  const container = document.getElementById('included-papers-list');
+  container.innerHTML = '<p>Loading papers...</p>';
+  
+  try {
+    const response = await fetch(`/api/projects/${projectId}/included-papers`);
+    if (!response.ok) {
+      throw new Error('Failed to load papers');
+    }
+    
+    const data = await response.json();
+    const papers = data.papers || [];
+    
+    if (papers.length === 0) {
+      container.innerHTML = '<p>No included papers found.</p>';
+      return;
+    }
+    
+    container.innerHTML = '';
+    
+    papers.forEach((paper, index) => {
+      const paperCard = document.createElement('div');
+      paperCard.className = 'included-paper-card';
+      
+      const authors = paper.authors && paper.authors.trim() ? paper.authors : 'Authors not available';
+      const year = paper.year ? `(${paper.year})` : '';
+      const venue = paper.venue && paper.venue.trim() ? paper.venue : 'Unknown venue';
+      
+      let linksHtml = '';
+      if (paper.doi_url) {
+        linksHtml += `<a href="${paper.doi_url}" target="_blank" class="paper-link">DOI</a>`;
+      }
+      if (paper.pubmed_url) {
+        linksHtml += `<a href="${paper.pubmed_url}" target="_blank" class="paper-link">PubMed</a>`;
+      }
+      if (paper.url && paper.url !== paper.doi_url && paper.url !== paper.pubmed_url) {
+        linksHtml += `<a href="${paper.url}" target="_blank" class="paper-link">View</a>`;
+      }
+      
+      let summaryHtml = '';
+      if (paper.summary) {
+        summaryHtml = `
+          <div class="paper-summary">
+            <h4>📋 Agent Summary</h4>
+            <div class="summary-section">
+              <strong>Population:</strong> ${escapeHtml(paper.summary.population || 'N/A')}
+            </div>
+            <div class="summary-section">
+              <strong>Intervention:</strong> ${escapeHtml(paper.summary.intervention || 'N/A')}
+            </div>
+            <div class="summary-section">
+              <strong>Comparator:</strong> ${escapeHtml(paper.summary.comparator || 'N/A')}
+            </div>
+            <div class="summary-section">
+              <strong>Outcomes:</strong> ${escapeHtml(paper.summary.outcomes || 'N/A')}
+            </div>
+            <div class="summary-section">
+              <strong>Main Findings:</strong> ${escapeHtml(paper.summary.main_findings || 'N/A')}
+            </div>
+            <div class="summary-section">
+              <strong>Sample Size:</strong> ${escapeHtml(paper.summary.sample_size || 'N/A')}
+            </div>
+            ${paper.summary.notes ? `<div class="summary-section"><strong>Notes:</strong> ${escapeHtml(paper.summary.notes)}</div>` : ''}
+          </div>
+        `;
+      } else {
+        summaryHtml = '<div class="paper-summary"><p class="no-summary">No summary available. Run agent review to generate summaries.</p></div>';
+      }
+      
+      paperCard.innerHTML = `
+        <div class="included-paper-header">
+          <h3>${index + 1}. ${escapeHtml(paper.title || 'No title')}</h3>
+          <div class="paper-meta-info">
+            <div class="paper-authors">
+              <strong>Authors:</strong> 
+              <span class="${authors === 'Authors not available' ? 'missing-data' : ''}">${escapeHtml(authors)}</span>
+            </div>
+            <div class="paper-venue-year">
+              <strong>Venue:</strong> ${escapeHtml(venue)} ${year}
+            </div>
+            ${paper.doi ? `<div class="paper-ids"><strong>DOI:</strong> ${escapeHtml(paper.doi)}</div>` : ''}
+            ${paper.pmid ? `<div class="paper-ids"><strong>PMID:</strong> ${escapeHtml(paper.pmid)}</div>` : ''}
+            ${linksHtml ? `<div class="paper-links">${linksHtml}</div>` : ''}
+          </div>
+        </div>
+        <div class="paper-abstract-section">
+          <strong>Abstract:</strong>
+          <p>${escapeHtml(paper.abstract || 'No abstract available')}</p>
+        </div>
+        ${summaryHtml}
+      `;
+      
+      container.appendChild(paperCard);
+    });
+    
+  } catch (error) {
+    container.innerHTML = `<p class="error">Error loading papers: ${error.message}</p>`;
+    console.error('Error loading included papers:', error);
+  }
+}
+
+// Load project overview
+async function loadProjectOverview(projectId) {
+  const container = document.getElementById('project-overview');
+  container.innerHTML = '<p>Loading overview...</p>';
+  
+  try {
+    const response = await fetch(`/api/projects/${projectId}/overview`);
+    if (!response.ok) {
+      if (response.status === 404) {
+        container.innerHTML = '<p class="no-overview">No overview available. Run agent review to generate an overview.</p>';
+        return;
+      }
+      throw new Error('Failed to load overview');
+    }
+    
+    const overview = await response.json();
+    
+    container.innerHTML = `
+      <div class="overview-content">
+        <div class="overview-header">
+          <h3>Project Overview</h3>
+          <p class="overview-meta">Based on ${overview.summary_count || 0} paper summaries</p>
+        </div>
+        <div class="overview-text">
+          ${formatMessage(overview.overview || 'No overview available')}
+        </div>
+        ${overview.pico_context ? `
+          <div class="overview-pico">
+            <h4>PICO Context</h4>
+            <pre>${escapeHtml(JSON.stringify(overview.pico_context, null, 2))}</pre>
+          </div>
+        ` : ''}
+      </div>
+    `;
+    
+  } catch (error) {
+    container.innerHTML = `<p class="error">Error loading overview: ${error.message}</p>`;
+    console.error('Error loading overview:', error);
+  }
 }
 
 // Update screening message (below progress bar)

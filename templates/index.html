@@ -194,7 +194,13 @@
           
           <div class="screening-workspace">
             <div class="screening-header">
-              <button id="start-screening" class="screening-button screening-button-primary">▶️ Start Screening</button>
+              <div class="screening-header-buttons">
+                <button id="start-screening" class="screening-button screening-button-primary">▶️ Start Screening</button>
+                <button id="cold-start-button" class="screening-button screening-button-secondary" style="display: none;">🧊 Cold-Start Agent</button>
+                <button id="review-included-button" class="screening-button screening-button-secondary" style="display: none;">📊 Review Included Papers</button>
+                <button id="view-results-header-button" class="screening-button screening-button-secondary" style="display: none;">📋 View Included Papers</button>
+                <button id="auto-label-all-button" class="screening-button screening-button-secondary" style="display: none;">🤖 Auto-Label All</button>
+              </div>
               <div id="screening-status" class="screening-status"></div>
             </div>
             
@@ -237,6 +243,31 @@
               <div class="completion-actions">
                 <button id="auto-label-button" class="screening-button screening-button-secondary" style="display: none;">🤖 Auto-Label Remaining Papers</button>
                 <button id="final-review-button" class="screening-button screening-button-primary">📊 Start Agent Review</button>
+                <button id="view-results-button" class="screening-button screening-button-secondary">📋 View Included Papers</button>
+              </div>
+            </div>
+            
+            <!-- Results View -->
+            <div id="results-view" class="results-view" style="display: none;">
+              <div class="results-header">
+                <h2>📋 Included Papers & Summaries</h2>
+                <button id="close-results-button" class="screening-button screening-button-secondary">← Back to Screening</button>
+              </div>
+              <div id="results-tabs" class="results-tabs">
+                <button class="results-tab active" data-tab="papers">📄 Papers</button>
+                <button class="results-tab" data-tab="overview">📊 Overview</button>
+              </div>
+              <div id="results-content" class="results-content">
+                <div id="papers-tab-content" class="results-tab-content active">
+                  <div id="included-papers-list" class="included-papers-list">
+                    <!-- Papers will be loaded here -->
+                  </div>
+                </div>
+                <div id="overview-tab-content" class="results-tab-content">
+                  <div id="project-overview" class="project-overview">
+                    <!-- Overview will be loaded here -->
+                  </div>
+                </div>
               </div>
             </div>
           </div>

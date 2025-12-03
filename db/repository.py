@@ -44,11 +44,15 @@ def upsert_paper(con: sqlite3.Connection, project_id: int, paper: Dict) -> int:
     """, vals)
 
     # Update if exists; promote status to 'include' if new says so
+    # Preserve existing authors if new data doesn't have authors
     con.execute("""
         UPDATE papers
            SET title      = COALESCE(?, title),
                abstract   = COALESCE(?, abstract),
-               authors    = COALESCE(?, authors),
+               authors    = CASE 
+                              WHEN ? IS NOT NULL AND ? != '' THEN ?
+                              ELSE authors
+                            END,
                year       = COALESCE(?, year),
                venue      = COALESCE(?, venue),
                volume     = COALESCE(?, volume),
@@ -76,7 +80,9 @@ def upsert_paper(con: sqlite3.Connection, project_id: int, paper: Dict) -> int:
     """, [
         paper.get("title"),
         paper.get("abstract"),
-        paper.get("authors"),
+        paper.get("authors"),  # For CASE check
+        paper.get("authors"),  # For CASE check
+        paper.get("authors"),  # For CASE assignment
         paper.get("year"),
         paper.get("venue"),
         paper.get("volume"),
