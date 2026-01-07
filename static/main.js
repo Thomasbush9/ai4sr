@@ -2384,6 +2384,7 @@ async function loadIncludedPapers(projectId) {
         summaryHtml = `
           <div class="paper-summary">
             <h4>📋 Agent Summary</h4>
+            ${paper.abstract ? `<div class="summary-section"><strong>Abstract:</strong> ${escapeHtml(paper.abstract)}</div>` : ''}
             <div class="summary-section">
               <strong>Population:</strong> ${escapeHtml(paper.summary.population || 'N/A')}
             </div>
