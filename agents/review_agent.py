@@ -1,100 +1,84 @@
 """
-Agent for reviewing included papers and extracting structured summaries using DSPy.
+Agent for reviewing included papers and extracting structured summaries using Azure OpenAI.
 """
-import dspy
 from typing import Dict, List, Optional, Any
 import json
 from db.connection import connect
 from db.repository import get_included_papers, save_agent_summary, save_project_overview
-from agents.pico import configure_dspy_safely
+from agents.azure_config import chat_completion
 
 
-class PaperReviewSignature(dspy.Signature):
-    """Extract structured information from a research paper."""
-    
-    title: str = dspy.InputField(desc="Paper title")
-    abstract: str = dspy.InputField(desc="Paper abstract")
-    pico_context: str = dspy.InputField(desc="Optional PICO context for the review")
-    
-    population: str = dspy.OutputField(desc="Population studied (patients, participants, etc.)")
-    intervention: str = dspy.OutputField(desc="Intervention or treatment being studied")
-    comparator: str = dspy.OutputField(desc="Comparison or control group")
-    outcomes: str = dspy.OutputField(desc="Outcomes measured")
-    main_findings: str = dspy.OutputField(desc="Main findings or conclusions")
-    sample_size: str = dspy.OutputField(desc="Sample size or number of participants")
-
-
-class OverviewSignature(dspy.Signature):
-    """Generate a comprehensive overview synthesizing multiple paper summaries."""
-    
-    summaries: str = dspy.InputField(desc="Structured summaries from multiple papers")
-    pico_context: str = dspy.InputField(desc="PICO context for the review")
-    
-    overview: str = dspy.OutputField(desc="Comprehensive overview synthesizing the findings")
-
-
-class ReviewAgent(dspy.Module):
+class ReviewAgent:
     """Agent that reviews papers and extracts structured summaries."""
-    
+
     def __init__(self, api_key: Optional[str] = None):
-        super().__init__()
-        self.api_key = api_key
-        
-        # Configure DSPy if API key provided
-        if self.api_key and self.api_key != "your_openai_api_key_here":
-            configure_dspy_safely(self.api_key)
-        
-        # Initialize predictor for paper review
-        self.paper_reviewer = dspy.Predict(PaperReviewSignature)
-        
-        # Initialize predictor for overview generation
-        self.overview_generator = dspy.Predict(OverviewSignature)
-    
+        pass
+
     def review_paper(self, paper: Dict, pico_context: Optional[str] = None) -> Dict:
         """
         Review a single paper and extract structured information.
-        
+
         Args:
             paper: Dict with paper data (title, abstract, etc.)
             pico_context: Optional PICO context string
-        
+
         Returns:
             Dict with extracted fields: population, intervention, comparator, outcomes, main_findings, sample_size
         """
         title = paper.get("title", "")
         abstract = paper.get("abstract", "") or ""
-        
-        # Prepare PICO context
         pico_str = pico_context or "No specific PICO context provided."
-        
-        # Extract structured information
-        result = self.paper_reviewer(
-            title=title,
-            abstract=abstract,
-            pico_context=pico_str
-        )
-        
-        return {
-            "population": result.population or "",
-            "intervention": result.intervention or "",
-            "comparator": result.comparator or "",
-            "outcomes": result.outcomes or "",
-            "main_findings": result.main_findings or "",
-            "sample_size": result.sample_size or ""
-        }
-    
+
+        prompt = f"""Extract structured information from this research paper.
+
+Title: {title}
+Abstract: {abstract}
+PICO Context: {pico_str}
+
+Extract:
+- population: Population studied (patients, participants, etc.)
+- intervention: Intervention or treatment being studied
+- comparator: Comparison or control group
+- outcomes: Outcomes measured
+- main_findings: Main findings or conclusions
+- sample_size: Sample size or number of participants
+
+Respond in JSON format with these exact keys."""
+
+        messages = [{"role": "user", "content": prompt}]
+        response = chat_completion(messages, temperature=0.3, max_tokens=512)
+
+        try:
+            result = json.loads(response)
+            return {
+                "population": result.get("population", ""),
+                "intervention": result.get("intervention", ""),
+                "comparator": result.get("comparator", ""),
+                "outcomes": result.get("outcomes", ""),
+                "main_findings": result.get("main_findings", ""),
+                "sample_size": result.get("sample_size", "")
+            }
+        except json.JSONDecodeError:
+            return {
+                "population": "",
+                "intervention": "",
+                "comparator": "",
+                "outcomes": "",
+                "main_findings": "",
+                "sample_size": ""
+            }
+
     def generate_overview(self, summaries: List[Dict], pico_context: Optional[str] = None) -> str:
         """
         Generate a comprehensive overview from multiple paper summaries.
-        
+
         Args:
             summaries: List of summary dicts
             pico_context: Optional PICO context string
-        
+
         Returns:
             Overview text
         """
-        # Format summaries for input
         summaries_text = "\n\n".join([
             f"Paper {i+1}:\n"
             f"Population: {s.get('population', 'N/A')}\n"
@@ -105,15 +89,25 @@ class ReviewAgent(dspy.Module):
             f"Sample Size: {s.get('sample_size', 'N/A')}"
             for i, s in enumerate(summaries)
         ])
-        
+
         pico_str = pico_context or "No specific PICO context provided."
-        
-        result = self.overview_generator(
-            summaries=summaries_text,
-            pico_context=pico_str
-        )
-        
-        return result.overview or ""
+
+        prompt = f"""Generate a comprehensive overview synthesizing these paper summaries.
+
+PICO Context: {pico_str}
+
+Paper Summaries:
+{summaries_text}
+
+Provide a comprehensive overview synthesizing the findings across all papers."""
+
+        messages = [
+            {"role": "system", "content": "You are an expert systematic review researcher."},
+            {"role": "user", "content": prompt}
+        ]
+        response = chat_completion(messages, temperature=0.5, max_tokens=1024)
+
+        return response or ""
 
 
 def review_included_papers(

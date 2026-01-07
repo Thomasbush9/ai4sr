@@ -1,61 +1,26 @@
 """
-RAG Agent for literature review question answering using DSPy
+RAG Agent for literature review question answering using Azure OpenAI
 """
-import dspy
 import os
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import numpy as np
 from pathlib import Path
 import json
+from agents.azure_config import chat_completion, get_embedding, get_embeddings_batch
 
-# Load environment variables from the project's .env file
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
-OPENAI_KEY = os.getenv("OPENAI_KEY")
-class RAGSignature(dspy.Signature):
-    """Answer questions about literature review papers using retrieved context."""
-    
-    question: str = dspy.InputField(desc="The user's question about the literature")
-    context: str = dspy.InputField(desc="Relevant context from retrieved papers")
-    
-    answer: str = dspy.OutputField(desc="A comprehensive answer based on the context")
+load_dotenv()
 
 
-class RAGAgent(dspy.Module):
-    """RAG Agent that retrieves relevant papers and answers questions using DSPy."""
-    
+class RAGAgent:
+    """RAG Agent that retrieves relevant papers and answers questions using Azure OpenAI."""
+
     def __init__(self, vector_db_path: str = "data/rag_embeddings", api_key: str = None):
-        super().__init__()
         self.vector_db_path = Path(vector_db_path)
         self.vector_db_path.mkdir(parents=True, exist_ok=True)
-        
-        # Store the API key for use in operations
-        self.api_key = api_key if api_key else OPENAI_KEY
-        
-        # Configure DSPy with the API key if available
-        if self.api_key and self.api_key != "your_openai_api_key_here":
-            # Set the environment variable for DSPy
-            os.environ["OPENAI_API_KEY"] = self.api_key
-            
-            # Import the safe configuration from orchestrator
-            try:
-                from .orchestrator import configure_dspy_safely
-                configure_dspy_safely(self.api_key)
-            except ImportError:
-                # Fallback if orchestrator not available
-                lm = dspy.LM(api_key=self.api_key, model="gpt-4o-mini", max_tokens=256)
-                dspy.configure(lm=lm)
-        
-        # Initialize DSPy embedder (using default dimensions for consistency)
-        self.embedder = dspy.Embedder('openai/text-embedding-3-small')
-        
-        # Initialize DSPy predictor
-        self.predictor = dspy.Predict(RAGSignature)
-        
+
         # Load or create vector database
         self._load_vector_db()
-        
-        # Don't load papers during initialization - load them when needed for specific projects
     
     def _load_vector_db(self):
         """Load the vector database from disk."""
@@ -77,8 +42,8 @@ class RAGAgent(dspy.Module):
             json.dump(self.metadata, f, indent=2)
     
     def _get_embedding(self, text: str) -> np.ndarray:
-        """Get embedding for text using DSPy embedder."""
-        return self.embedder(text)
+        """Get embedding for text using Azure OpenAI."""
+        return np.array(get_embedding(text))
     
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         """Calculate cosine similarity between two vectors."""
@@ -188,11 +153,12 @@ class RAGAgent(dspy.Module):
                 'score': paper.get('score'),
                 'rationale': paper.get('rationale', '')
             })
-        
-        # Get embeddings using DSPy embedder
+
+        # Get embeddings using Azure OpenAI
         if texts:
-            new_embeddings = self.embedder(texts)
-            
+            embeddings_list = get_embeddings_batch(texts)
+            new_embeddings = np.array(embeddings_list)
+
             # Add to existing database
             if len(self.embeddings) == 0:
                 self.embeddings = new_embeddings
@@ -298,10 +264,11 @@ class RAGAgent(dspy.Module):
                 'type': 'agent_summary'
             })
         
-        # Get embeddings using DSPy embedder
+        # Get embeddings using Azure OpenAI
         if texts:
-            new_embeddings = self.embedder(texts)
-            
+            embeddings_list = get_embeddings_batch(texts)
+            new_embeddings = np.array(embeddings_list)
+
             # Add to existing database
             if len(self.embeddings) == 0:
                 self.embeddings = new_embeddings
@@ -309,7 +276,7 @@ class RAGAgent(dspy.Module):
             else:
                 self.embeddings = np.vstack([self.embeddings, new_embeddings])
                 self.metadata.extend(summary_metadata)
-            
+
             # Save to disk
             self._save_vector_db()
     
@@ -400,12 +367,22 @@ class RAGAgent(dspy.Module):
             context_parts.append("")  # Empty line between items
         
         context = "\n".join(context_parts)
-        
-        # Generate answer using DSPy
-        result = self.predictor(question=question, context=context)
-        
-        # Format the answer with relevant papers
-        answer = result.answer
+
+        # Generate answer using Azure OpenAI
+        prompt = f"""Answer the following question using the provided context from literature review papers.
+
+Question: {question}
+
+Context:
+{context}
+
+Provide a comprehensive answer based on the context."""
+
+        messages = [
+            {"role": "system", "content": "You are an expert systematic review researcher. Provide comprehensive answers based on the retrieved literature."},
+            {"role": "user", "content": prompt}
+        ]
+        answer = chat_completion(messages, temperature=0.5, max_tokens=1024)
         
         # Add relevant papers section
         papers_section = "\n\n**Relevant Papers:**\n"

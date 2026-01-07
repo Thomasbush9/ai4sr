@@ -5,12 +5,10 @@ from .utils import build_pubmed_query_from_concepts, build_pubmed_query_from_key
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional, Literal
 from argparse import ArgumentParser
-import threading
 
-import dspy
 import pandas as pd
 
-from .keyword_exp import KeywordGeneratorProgram, SynonymGeneratorProgram, ConceptGenerator
+from .keyword_exp import KeywordGeneratorProgram, SynonymGeneratorProgram, ConceptGeneratorProgram
 from .paper_finder import (
     fetch_from_keywords, articles_fetchers, append_filters,
     fetch_citations, fetch_cited_by, fetch_similar_papers, fetch_openalex_work_by_id
@@ -25,26 +23,6 @@ from db.repository import (
 from .rag_agent import RAGAgent
 
 load_dotenv()
-OPENAI_KEY = os.getenv("OPENAI_KEY")
-
-# Global lock for DSPy configuration
-_dspy_lock = threading.Lock()
-_dspy_configured_key = None
-
-def configure_dspy_safely(api_key: str):
-    """Safely configure DSPy with the given API key, respecting threading constraints"""
-    global _dspy_configured_key
-    
-    with _dspy_lock:
-        # Only reconfigure if we're using a different key
-        if _dspy_configured_key != api_key:
-            lm = dspy.LM(api_key=api_key, model="gpt-4o-mini", max_tokens=256)
-            dspy.configure(lm=lm)
-            _dspy_configured_key = api_key
-
-# Configure DSPy with default key at module import if available
-if OPENAI_KEY and OPENAI_KEY != "your_openai_api_key_here":
-    configure_dspy_safely(OPENAI_KEY)
 def run_selection_and_save(
     df: pd.DataFrame,
     decisions: list[dict],
@@ -82,27 +60,20 @@ def run_selection_and_save(
 
 def literature_review(query: str, project_id: int, n: int = 10, api_key: str = None):
     print(f"DEBUG: Starting literature review for query: '{query}', project_id: {project_id}, n: {n}")
-    
-    # Configure DSPy with user's API key if provided, otherwise use default
-    key_to_use = api_key if api_key else OPENAI_KEY
-    if key_to_use and key_to_use != "your_openai_api_key_here":
-        configure_dspy_safely(key_to_use)
-    else:
-        raise ValueError("No valid API key provided. Please configure your OpenAI API key in settings.")
 
     print("DEBUG: Generating keywords...")
     keyword_gen = KeywordGeneratorProgram()
-    concept_gen = dspy.Predict(ConceptGenerator)
+    concept_gen = ConceptGeneratorProgram()
     basic_screener = Screener()  # First stage: basic screening
     cot_screener = CoTScreener()  # Second stage: detailed PICO analysis
 
-    kw = keyword_gen(query)
+    kw = keyword_gen.forward(query)
     boolean_keys = kw["boolean_pubmed"]  # in case you need it later
     keywords     = kw["keywords"]
     print(f"DEBUG: Generated keywords: {keywords}")
 
     print("DEBUG: Generating concepts...")
-    concepts = concept_gen(keywords=keywords).concepts
+    concepts = concept_gen(keywords=keywords)["concepts"]
     concepts = parse_concepts(concepts)
     print(f"DEBUG: Generated concepts: {concepts}")
     
