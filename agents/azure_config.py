@@ -3,10 +3,12 @@ import threading
 from typing import Optional, List, Dict, Any
 from azure.identity import DefaultAzureCredential, ClientSecretCredential
 from azure.ai.projects import AIProjectClient
+from azure.ai.projects.models import PromptAgentDefinition
 
 _azure_client_lock = threading.Lock()
 _project_client = None
 _openai_client = None
+_agent = None
 
 
 def get_credential():
@@ -51,6 +53,30 @@ def get_project_client() -> AIProjectClient:
     return _project_client
 
 
+def get_or_create_agent():
+    """Get or create the AI4SR agent."""
+    global _agent
+
+    if _agent is None:
+        with _azure_client_lock:
+            if _agent is None:
+                project_client = get_project_client()
+                agent_name = os.getenv("AZURE_AGENT_NAME", "ai4sr-agent")
+                model_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
+
+                # Create or update agent
+                _agent = project_client.agents.create_version(
+                    agent_name=agent_name,
+                    definition=PromptAgentDefinition(
+                        model=model_deployment,
+                        instructions="You are an AI assistant helping with systematic literature reviews. "
+                                   "Provide clear, accurate, and concise responses based on the context provided."
+                    )
+                )
+
+    return _agent
+
+
 def get_azure_client():
     """Get OpenAI client from Azure AI Project."""
     global _openai_client
@@ -71,20 +97,27 @@ def chat_completion(
     max_tokens: Optional[int] = None,
     **kwargs
 ) -> str:
-    if deployment_name is None:
-        deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
-
+    """Call Azure AI Foundry agent for chat completion."""
     client = get_azure_client()
+    agent = get_or_create_agent()
 
-    response = client.chat.completions.create(
-        model=deployment_name,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        **kwargs
+    # Convert messages to input format (use last user message)
+    user_content = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+
+    # Use Azure AI Foundry agent API
+    response = client.responses.create(
+        input=[{"role": "user", "content": user_content}],
+        extra_body={
+            "agent": {
+                "name": agent.name,
+                "type": "agent_reference"
+            },
+            "max_tokens": max_tokens,
+            "temperature": temperature
+        }
     )
 
-    return response.choices[0].message.content
+    return response.output_text
 
 
 def get_embedding(
