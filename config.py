@@ -8,12 +8,11 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 SQLITE_PATH = str(DB_PATH)
 
-# Azure OpenAI Configuration
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+# Azure AI Projects Configuration
+AZURE_EXISTING_AIPROJECT_ENDPOINT = os.getenv("AZURE_EXISTING_AIPROJECT_ENDPOINT")
 AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-small")
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+AZURE_AGENT_NAME = os.getenv("AZURE_AGENT_NAME", "ai4sr-agent")
 
 # Flask Configuration
 FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "dev-secret-key-change-in-production")

@@ -15,9 +15,8 @@ def test_environment_variables():
     print("="*60)
 
     required_vars = {
-        "Azure OpenAI": [
-            "AZURE_OPENAI_ENDPOINT",
-            "AZURE_OPENAI_API_KEY",
+        "Azure AI Projects": [
+            "AZURE_EXISTING_AIPROJECT_ENDPOINT",
             "AZURE_OPENAI_DEPLOYMENT_NAME",
             "AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME",
         ],
@@ -151,11 +150,11 @@ def main():
         print("\n" + "="*60)
         print("⚠️  AZURE CREDENTIALS NOT CONFIGURED")
         print("="*60)
-        print("\nPlease set up your Azure OpenAI credentials in .env file:")
-        print("  - AZURE_OPENAI_ENDPOINT")
-        print("  - AZURE_OPENAI_API_KEY")
+        print("\nPlease set up your Azure AI Projects credentials in .env file:")
+        print("  - AZURE_EXISTING_AIPROJECT_ENDPOINT")
         print("  - AZURE_OPENAI_DEPLOYMENT_NAME")
         print("  - AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME")
+        print("\nAnd authenticate with: az login")
         print("\nSee .env.example for template.")
         print("\nSkipping Azure API tests...\n")
     else:

@@ -1,35 +1,48 @@
 import os
 import threading
 from typing import Optional, List, Dict, Any
-from openai import AzureOpenAI
+from azure.identity import DefaultAzureCredential
+from azure.ai.projects import AIProjectClient
 
 _azure_client_lock = threading.Lock()
-_azure_client = None
+_project_client = None
+_openai_client = None
 
 
-def get_azure_client() -> AzureOpenAI:
-    global _azure_client
+def get_project_client() -> AIProjectClient:
+    """Get Azure AI Project client with DefaultAzureCredential."""
+    global _project_client
 
-    if _azure_client is None:
+    if _project_client is None:
         with _azure_client_lock:
-            if _azure_client is None:
-                endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-                api_key = os.getenv("AZURE_OPENAI_API_KEY")
-                api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+            if _project_client is None:
+                endpoint = os.getenv("AZURE_EXISTING_AIPROJECT_ENDPOINT")
 
-                if not endpoint or not api_key:
+                if not endpoint:
                     raise ValueError(
-                        "Azure OpenAI credentials not configured. "
-                        "Please set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY environment variables."
+                        "Azure AI Project not configured. "
+                        "Please set AZURE_EXISTING_AIPROJECT_ENDPOINT environment variable."
                     )
 
-                _azure_client = AzureOpenAI(
-                    azure_endpoint=endpoint,
-                    api_key=api_key,
-                    api_version=api_version
+                _project_client = AIProjectClient(
+                    endpoint=endpoint,
+                    credential=DefaultAzureCredential()
                 )
 
-    return _azure_client
+    return _project_client
+
+
+def get_azure_client():
+    """Get OpenAI client from Azure AI Project."""
+    global _openai_client
+
+    if _openai_client is None:
+        with _azure_client_lock:
+            if _openai_client is None:
+                project_client = get_project_client()
+                _openai_client = project_client.get_openai_client()
+
+    return _openai_client
 
 
 def chat_completion(
