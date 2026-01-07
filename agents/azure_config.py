@@ -1,7 +1,7 @@
 import os
 import threading
 from typing import Optional, List, Dict, Any
-from azure.identity import DefaultAzureCredential
+from azure.identity import DefaultAzureCredential, ClientSecretCredential
 from azure.ai.projects import AIProjectClient
 
 _azure_client_lock = threading.Lock()
@@ -9,8 +9,26 @@ _project_client = None
 _openai_client = None
 
 
+def get_credential():
+    """Get Azure credential - use service principal if available, else DefaultAzureCredential."""
+    tenant_id = os.getenv("MICROSOFT_TENANT_ID")
+    client_id = os.getenv("MICROSOFT_CLIENT_ID")
+    client_secret = os.getenv("MICROSOFT_CLIENT_SECRET")
+
+    if tenant_id and client_id and client_secret:
+        # Use explicit service principal credentials
+        return ClientSecretCredential(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            client_secret=client_secret
+        )
+    else:
+        # Fall back to DefaultAzureCredential (tries az login, managed identity, etc.)
+        return DefaultAzureCredential()
+
+
 def get_project_client() -> AIProjectClient:
-    """Get Azure AI Project client with DefaultAzureCredential."""
+    """Get Azure AI Project client with credentials."""
     global _project_client
 
     if _project_client is None:
@@ -24,9 +42,10 @@ def get_project_client() -> AIProjectClient:
                         "Please set AZURE_EXISTING_AIPROJECT_ENDPOINT environment variable."
                     )
 
+                credential = get_credential()
                 _project_client = AIProjectClient(
                     endpoint=endpoint,
-                    credential=DefaultAzureCredential()
+                    credential=credential
                 )
 
     return _project_client
