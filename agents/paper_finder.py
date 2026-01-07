@@ -171,7 +171,7 @@ def fetch_semantic_scholar_papers(query: str, n: int = 20) -> pd.DataFrame:
     offset = 0
     limit = min(100, n)  # Semantic Scholar max per request is 100
     
-    headers = {"User-Agent": "ai4sr-paper-finder/1.0 (mailto:thomasbush52@gmail.com)"}
+    headers = {"User-Agent": "ai4sr-paper-finder/1.0 (mailto:noreply@example.com)"}
     if config.SEMANTIC_SCHOLAR_API_KEY:
         headers["x-api-key"] = config.SEMANTIC_SCHOLAR_API_KEY
     

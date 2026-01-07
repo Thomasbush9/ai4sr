@@ -9,7 +9,7 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 SQLITE_PATH = str(DB_PATH)
 
 # OpenAlex API configuration
-OPENALEX_EMAIL = os.getenv("OPENALEX_EMAIL", "thomasbush52@gmail.com")
+OPENALEX_EMAIL = os.getenv("OPENALEX_EMAIL", "noreply@example.com")
 MAX_CITATIONS_BACKWARD = int(os.getenv("MAX_CITATIONS_BACKWARD", "10"))
 MAX_CITATIONS_FORWARD = int(os.getenv("MAX_CITATIONS_FORWARD", "10"))
 MAX_SIMILAR_PAPERS = int(os.getenv("MAX_SIMILAR_PAPERS", "10"))
