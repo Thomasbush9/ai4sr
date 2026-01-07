@@ -97,29 +97,18 @@ def get_conversation_messages(conversation_id):
             "created_at": m["created_at"]
         } for m in messages])
 
-@api_bp.post("/test-openai")
-def test_openai_key():
-    """Test if an OpenAI API key is valid"""
+@api_bp.post("/test-azure-config")
+def test_azure_config():
+    """Test if Azure OpenAI configuration is valid"""
     try:
-        data = request.get_json()
-        api_key = data.get('api_key')
-        
-        if not api_key:
-            return jsonify({"success": False, "error": "No API key provided"}), 400
-        
-        # Test the API key with a simple request
-        import openai
-        client = openai.OpenAI(api_key=api_key)
-        
-        # Make a simple test request
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": "Hello"}],
-            max_tokens=5
-        )
-        
-        return jsonify({"success": True, "message": "API key is valid"})
-        
+        from agents.azure_config import chat_completion
+
+        # Test with a simple request
+        messages = [{"role": "user", "content": "Hello"}]
+        response = chat_completion(messages, max_tokens=5)
+
+        return jsonify({"success": True, "message": "Azure OpenAI configuration is valid"})
+
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
