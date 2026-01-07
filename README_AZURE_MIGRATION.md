@@ -23,25 +23,25 @@ az login
 Follow browser prompts to sign in.
 
 ### 3. Configure Environment
-Your `.env` is already set with:
+Your `.env` should have:
 ```bash
-AZURE_EXISTING_AIPROJECT_ENDPOINT=https://oai-ai4sr.services.ai.azure.com/api/projects/oai-ai4sr-project
+AZURE_EXISTING_AIPROJECT_ENDPOINT=<your-project-endpoint>
 AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4o-mini
 ```
 
 ### 4. Grant Permissions (Admin Required)
 
 **Admin:** Grant this role in [Azure Portal](https://portal.azure.com):
-- **Resource**: `oai-ai4sr-project`
+- **Resource**: Your AI Project
 - **Role**: `Cognitive Services OpenAI User`
-- **User**: `bushth@ext.euda.europa.eu`
+- **User**: The user who needs access
 
 **Quick command:**
 ```bash
 az role assignment create \
   --role "Cognitive Services OpenAI User" \
-  --assignee bushth@ext.euda.europa.eu \
-  --scope "/subscriptions/ebdbbfdb-a6d3-4bff-a72a-91580614d95a/resourceGroups/rg-ai4sr/providers/Microsoft.CognitiveServices/accounts/oai-ai4sr/projects/oai-ai4sr-project"
+  --assignee <user-email> \
+  --scope "<your-ai-project-resource-id>"
 ```
 
 ### 5. Test

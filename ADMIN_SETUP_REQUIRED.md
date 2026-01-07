@@ -3,16 +3,16 @@
 ## Current Status
 
 ✅ Code migration complete
-✅ User authenticated (`bushth@ext.euda.europa.eu`)
+✅ User authenticated (`<user-email>`)
 ❌ Permissions needed to use Azure AI Foundry
 
 ## Required Permissions
 
-User `bushth@ext.euda.europa.eu` needs these permissions on the AI Project:
+User `<user-email>` needs these permissions on the AI Project:
 
 ### Resource
-- **Project**: `oai-ai4sr-project`
-- **Resource ID**: `/subscriptions/ebdbbfdb-a6d3-4bff-a72a-91580614d95a/resourceGroups/rg-ai4sr/providers/Microsoft.CognitiveServices/accounts/oai-ai4sr/projects/oai-ai4sr-project`
+- **Project**: `<project-name>-project`
+- **Resource ID**: `/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.CognitiveServices/accounts/<project-name>/projects/<project-name>-project`
 
 ### Required Role
 **Cognitive Services OpenAI Contributor**
@@ -29,15 +29,15 @@ This role includes:
 2. Go to **Access Control (IAM)**
 3. Click **Add role assignment**
 4. Select role: **Cognitive Services OpenAI Contributor**
-5. Assign to: `bushth@ext.euda.europa.eu`
+5. Assign to: `<user-email>`
 6. Save
 
 ### Via Azure CLI
 ```bash
 az role assignment create \
   --role "Cognitive Services OpenAI Contributor" \
-  --assignee bushth@ext.euda.europa.eu \
-  --scope "/subscriptions/ebdbbfdb-a6d3-4bff-a72a-91580614d95a/resourceGroups/rg-ai4sr/providers/Microsoft.CognitiveServices/accounts/oai-ai4sr/projects/oai-ai4sr-project"
+  --assignee <user-email> \
+  --scope "/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.CognitiveServices/accounts/<project-name>/projects/<project-name>-project"
 ```
 
 ## Alternative: Pre-create an Agent

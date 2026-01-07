@@ -2,20 +2,20 @@
 
 ## Current Issue
 
-User `bushth@ext.euda.europa.eu` needs permissions to use the Azure AI Project.
+User `<user-email>` needs permissions to use the Azure AI Project.
 
 ## How to Grant Permissions
 
 ### Option 1: Azure Portal (Recommended)
 
 1. Go to [Azure Portal](https://portal.azure.com)
-2. Navigate to your AI Project: **oai-ai4sr-project**
+2. Navigate to your AI Project: **<project-name>-project**
 3. Click **Access Control (IAM)** in the left menu
 4. Click **+ Add** → **Add role assignment**
 5. Select role: **Cognitive Services OpenAI User**
 6. Click **Next**
 7. Click **+ Select members**
-8. Search for: `bushth@ext.euda.europa.eu`
+8. Search for: `<user-email>`
 9. Select the user and click **Select**
 10. Click **Review + assign**
 
@@ -23,12 +23,12 @@ User `bushth@ext.euda.europa.eu` needs permissions to use the Azure AI Project.
 
 ```bash
 # Get your Azure AI Project resource ID (already in your .env)
-RESOURCE_ID="/subscriptions/ebdbbfdb-a6d3-4bff-a72a-91580614d95a/resourceGroups/rg-ai4sr/providers/Microsoft.CognitiveServices/accounts/oai-ai4sr/projects/oai-ai4sr-project"
+RESOURCE_ID="/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.CognitiveServices/accounts/<project-name>/projects/<project-name>-project"
 
 # Grant yourself the role
 az role assignment create \
   --role "Cognitive Services OpenAI User" \
-  --assignee bushth@ext.euda.europa.eu \
+  --assignee <user-email> \
   --scope $RESOURCE_ID
 ```
 
