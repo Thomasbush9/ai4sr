@@ -16,12 +16,23 @@ This project supports **systematic and semi-systematic reviews** by automating t
 - RAG func 
 - supported with DSPy
 
-## Goals of this session: 
+## ✅ Completed - Azure Migration
 
-- create a new branch for this session 
-- check for main bug or security concerns 
-- switch from dspy based models to microsfot azure models, documentation here: microsfot foundry models. 
-- adapt the webapp to support authentication using microsfot account for the organisation: 
+**Branch:** `azure-migration-and-auth`
+
+### What Was Done:
+- ✅ Created new branch
+- ✅ Fixed security issues (removed exposed keys)
+- ✅ Migrated all agents to Azure AI Foundry
+- ✅ Added Microsoft authentication framework
+- ✅ Full test suite
+
+### Current Status:
+- Code: Ready ✓
+- Auth: Working (`az login`) ✓
+- Permissions: Needs admin grant ⏳
+
+See `README_AZURE_MIGRATION.md` for quick start. 
 
 
 ## Rules:
