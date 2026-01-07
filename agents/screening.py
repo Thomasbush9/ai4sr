@@ -1,5 +1,4 @@
 import json
-import dspy
 import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple, Literal
@@ -8,72 +7,77 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 
 from pydantic import BaseModel
+from agents.azure_config import chat_completion
 
 
-
-#  - - - - - - - - --  dspy modules
-
-class ScreenTriageSig(dspy.Signature):
-    """First-pass triage of a study's title and abstract.
-
-    Instructions:
-    - Compare to the research question and inclusion hints.
-    - If key info (population/intervention/outcomes) is missing, prefer 'maybe' rather than 'exclude'.
-    - Return decision in {include, maybe, exclude}, a 0-100 relevance score.
-    """
-    research_question: str = dspy.InputField()
-    title: str = dspy.InputField()
-    abstract: str = dspy.InputField()
-
-    #outputs
-    decision: Literal["include", "maybe", "exclude"] = dspy.OutputField()
-    score: int = dspy.OutputField(le=0, ge=100)
-
-class Screener(dspy.Module):
+class Screener:
     def __init__(self) -> None:
-        self.predict = dspy.Predict(ScreenTriageSig)
-    def forward(self, question:str, title:str, abstract:str)->Dict[str,Any]:
+        pass
 
-        out = self.predict(
-                research_question=question,
-                title=title or "",
-                abstract = abstract or "",
-                )
-        return {"decision":out["decision"], "score":out["score"]}
-#---------- Screener with CoT:
-class CoTScreenerSig(dspy.Signature):
-    """
-    Perform detailed PICO analysis of this paper for systematic review inclusion.
-    
-    PICO Framework Analysis:
-    - P (Population): Who is studied? Age, gender, condition, etc.
-    - I (Intervention/Index): What is the main intervention or exposure?
-    - C (Comparator): What is it compared to? Control group, alternative treatment?
-    - O (Outcomes): What outcomes are measured? Primary and secondary endpoints?
-    
-    Based on this analysis, provide a final decision and detailed rationale.
-    """
-    research_question: str = dspy.InputField()
-    title: str = dspy.InputField()
-    abstract: str = dspy.InputField()
+    def forward(self, question: str, title: str, abstract: str) -> Dict[str, Any]:
+        prompt = f"""First-pass triage of a study's title and abstract.
 
-    #outputs
-    decision: Literal["include", "maybe", "exclude"] = dspy.OutputField()
-    rationale: str = dspy.OutputField(desc="Detailed PICO analysis and reasoning for the decision")
+Instructions:
+- Compare to the research question and inclusion hints.
+- If key info (population/intervention/outcomes) is missing, prefer 'maybe' rather than 'exclude'.
+- Return decision in {{include, maybe, exclude}}, a 0-100 relevance score.
 
-class CoTScreener(dspy.Module):
+Research question: {question}
+Title: {title or ""}
+Abstract: {abstract or ""}
+
+Respond in JSON format with keys: "decision" (include/maybe/exclude) and "score" (0-100)."""
+
+        messages = [{"role": "user", "content": prompt}]
+        response = chat_completion(messages, temperature=0.3, max_tokens=256)
+
+        try:
+            result = json.loads(response)
+            return {"decision": result.get("decision", "maybe"), "score": int(result.get("score", 50))}
+        except json.JSONDecodeError:
+            return {"decision": "maybe", "score": 50}
+
+
+class CoTScreener:
     def __init__(self, callbacks=None):
-        self.predict = dspy.ChainOfThought(CoTScreenerSig)
-    def forward(self, question:str, title:str, abstract:str)->Dict[str, Any]:
-        result = self.predict(
-                research_question=question,
-                title=title,
-                abstract=abstract)
-        return {
-            "decision": result.decision,
-            "rationale": result.rationale,
-            "score": 85  # Higher score for CoT analysis
-        }
+        pass
+
+    def forward(self, question: str, title: str, abstract: str) -> Dict[str, Any]:
+        prompt = f"""Perform detailed PICO analysis of this paper for systematic review inclusion.
+
+PICO Framework Analysis:
+- P (Population): Who is studied? Age, gender, condition, etc.
+- I (Intervention/Index): What is the main intervention or exposure?
+- C (Comparator): What is it compared to? Control group, alternative treatment?
+- O (Outcomes): What outcomes are measured? Primary and secondary endpoints?
+
+Based on this analysis, provide a final decision and detailed rationale.
+
+Research question: {question}
+Title: {title}
+Abstract: {abstract}
+
+Respond in JSON format with keys: "decision" (include/maybe/exclude) and "rationale" (detailed PICO analysis)."""
+
+        messages = [
+            {"role": "system", "content": "You are an expert systematic review researcher. Think step-by-step through the PICO framework."},
+            {"role": "user", "content": prompt}
+        ]
+        response = chat_completion(messages, temperature=0.3, max_tokens=512)
+
+        try:
+            result = json.loads(response)
+            return {
+                "decision": result.get("decision", "maybe"),
+                "rationale": result.get("rationale", "Analysis not available"),
+                "score": 85
+            }
+        except json.JSONDecodeError:
+            return {
+                "decision": "maybe",
+                "rationale": response,
+                "score": 85
+            }
 
 if __name__ == "__main__":
     load_dotenv()

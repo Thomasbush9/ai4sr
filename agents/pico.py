@@ -1,55 +1,14 @@
 """
-PICO (Population, Intervention, Comparison, Outcome) data model and DSPy expansion.
+PICO (Population, Intervention, Comparison, Outcome) data model and expansion using Azure OpenAI.
 """
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 import json
-import dspy
 from dotenv import load_dotenv
 import os
-import threading
+from agents.azure_config import chat_completion
 
 load_dotenv()
-
-# Thread-local storage for DSPy configuration
-_thread_local = threading.local()
-
-def configure_dspy_safely(api_key: str):
-    """
-    Safely configure DSPy with the given API key, handling thread-local constraints.
-    DSPy settings are thread-local, so we need to handle cases where configuration
-    is attempted from a different thread than the initial configuration.
-    """
-    # Check if already configured in this thread with the same key
-    if hasattr(_thread_local, 'dspy_configured_key') and _thread_local.dspy_configured_key == api_key:
-        return  # Already configured in this thread
-    
-    # Check if DSPy is already configured in this thread
-    try:
-        # Try to access dspy.settings to see if it's configured
-        current_lm = getattr(dspy.settings, 'lm', None) if hasattr(dspy, 'settings') else None
-        if current_lm is not None:
-            # DSPy is already configured - we can't change it
-            # Store the key we wanted to use and continue with existing config
-            _thread_local.dspy_configured_key = api_key
-            return
-    except (AttributeError, RuntimeError):
-        pass
-    
-    # Try to configure DSPy
-    try:
-        lm = dspy.LM(api_key=api_key, model="gpt-4o-mini", max_tokens=2048)
-        dspy.configure(lm=lm)
-        _thread_local.dspy_configured_key = api_key
-    except RuntimeError as e:
-        # Handle the specific error: "dspy.settings can only be changed by the thread that initially configured it"
-        if "can only be changed by the thread" in str(e):
-            # DSPy is already configured in this thread by another module
-            # We can't reconfigure, so we'll use the existing configuration
-            _thread_local.dspy_configured_key = api_key
-            # Note: The existing configuration will be used
-        else:
-            raise
 
 
 @dataclass
@@ -116,109 +75,88 @@ def pico_to_description(pico: PICO) -> str:
     return " | ".join(parts)
 
 
-class PICOExpansion(dspy.Signature):
-    """Expand a PICO description into search queries and keywords."""
-    pico_description: str = dspy.InputField(
-        desc="PICO framework description: Population, Intervention, Comparison, Outcomes, Study design, Extra terms"
-    )
-    question_summary: str = dspy.OutputField(
-        desc="1-3 sentence summary of the review question"
-    )
-    pubmed_query: str = dspy.OutputField(
-        desc="Boolean search query suitable for PubMed (use field tags like [tiab], [mh] if needed)"
-    )
-    openalex_query: str = dspy.OutputField(
-        desc="Search query suitable for OpenAlex (simple text query, no field tags)"
-    )
-    pico_keywords: str = dspy.OutputField(
-        desc="JSON object with expanded keywords for each PICO component: {\"population\": [...], \"intervention\": [...], \"comparison\": [...], \"outcome\": [...], \"study_design\": [...]}"
-    )
+class PICOExpansionProgram:
+    """Module for expanding PICO into search queries using Azure OpenAI."""
 
-
-class PICOExpansionProgram(dspy.Module):
-    """DSPy module for expanding PICO into search queries."""
-    
     def __init__(self):
-        super().__init__()
-        self.predict = dspy.Predict(PICOExpansion)
-    
+        pass
+
     def forward(self, pico_description: str) -> Dict[str, Any]:
         """Expand PICO description into queries and keywords."""
-        result = self.predict(pico_description=pico_description)
-        
-        # Parse pico_keywords JSON
-        pico_keywords = {}
+        prompt = f"""Expand this PICO framework description into search queries and keywords.
+
+PICO Description: {pico_description}
+
+Provide:
+1. question_summary: 1-3 sentence summary of the review question
+2. pubmed_query: Boolean search query suitable for PubMed (use field tags like [tiab], [mh] if needed)
+3. openalex_query: Search query suitable for OpenAlex (simple text query, no field tags)
+4. pico_keywords: JSON object with expanded keywords for each PICO component
+
+Respond in JSON format with keys: "question_summary" (string), "pubmed_query" (string), "openalex_query" (string), "pico_keywords" (object with keys: population, intervention, comparison, outcome, study_design - each containing a list of keyword strings)."""
+
+        messages = [{"role": "user", "content": prompt}]
+        response = chat_completion(messages, temperature=0.5, max_tokens=2048)
+
         try:
-            parsed = json.loads(result.pico_keywords)
-            if isinstance(parsed, dict):
-                pico_keywords = parsed
-        except (json.JSONDecodeError, AttributeError):
-            # Fallback: create empty structure
-            pico_keywords = {
-                "population": [],
-                "intervention": [],
-                "comparison": [],
-                "outcome": [],
-                "study_design": []
+            result = json.loads(response)
+            pico_keywords = result.get("pico_keywords", {})
+            if not isinstance(pico_keywords, dict):
+                pico_keywords = {
+                    "population": [],
+                    "intervention": [],
+                    "comparison": [],
+                    "outcome": [],
+                    "study_design": []
+                }
+
+            return {
+                "question_summary": result.get("question_summary", ""),
+                "pubmed_query": result.get("pubmed_query", ""),
+                "openalex_query": result.get("openalex_query", ""),
+                "pico_keywords": pico_keywords,
             }
-        
-        return {
-            "question_summary": result.question_summary,
-            "pubmed_query": result.pubmed_query,
-            "openalex_query": result.openalex_query,
-            "pico_keywords": pico_keywords,
-        }
+        except json.JSONDecodeError:
+            return {
+                "question_summary": "",
+                "pubmed_query": "",
+                "openalex_query": "",
+                "pico_keywords": {
+                    "population": [],
+                    "intervention": [],
+                    "comparison": [],
+                    "outcome": [],
+                    "study_design": []
+                }
+            }
 
 
 def expand_pico(pico: PICO, project_id: int, api_key: Optional[str] = None) -> Dict[str, Any]:
     """
-    Expand PICO into search queries using DSPy and store results.
-    
+    Expand PICO into search queries using Azure OpenAI and store results.
+
     Args:
         pico: PICO object to expand
         project_id: Project ID to associate with expansion
-        api_key: OpenAI API key (optional, uses env var if not provided)
-    
+        api_key: Not used (kept for backward compatibility)
+
     Returns:
         Dictionary with question_summary, pubmed_query, openalex_query, pico_keywords
     """
     from db.connection import connect
     from db.repository import save_pico_expansion
-    
-    # Get API key
-    if not api_key:
-        api_key = os.getenv("OPENAI_KEY")
-    
-    if not api_key or api_key == "your_openai_api_key_here":
-        raise ValueError("No valid API key provided. Please configure your OpenAI API key.")
-    
-    # Configure DSPy (thread-safe)
-    # This will configure DSPy for the current thread, or handle the case
-    # where it's already configured by another module
-    configure_dspy_safely(api_key)
-    
-    # Verify DSPy is configured before proceeding
-    try:
-        if not hasattr(dspy.settings, 'lm') or dspy.settings.lm is None:
-            # Try one more time to configure
-            lm = dspy.LM(api_key=api_key, model="gpt-4o-mini", max_tokens=2048)
-            dspy.configure(lm=lm)
-    except (AttributeError, RuntimeError) as e:
-        if "can only be changed by the thread" not in str(e):
-            raise ValueError(f"Failed to configure DSPy: {e}")
-        # If it's the thread error, continue - DSPy should be configured
-    
+
     # Convert PICO to description
     pico_description = pico_to_description(pico)
-    
-    # Run expansion - DSPy will use the configured LM from dspy.settings
+
+    # Run expansion using Azure OpenAI
     expansion_program = PICOExpansionProgram()
     expansion_result = expansion_program.forward(pico_description)
-    
+
     # Store in database
     with connect() as con:
         save_pico_expansion(con, project_id, expansion_result)
         con.commit()
-    
+
     return expansion_result
 
