@@ -378,11 +378,41 @@ def _parse_openalex_work(work: Dict) -> Dict:
     # Extract citations count
     citations_crossref = work.get("cited_by_count")
     
+    # Extract abstract - handle both formats
+    abstract = ""
+    abstract_inverted_index = work.get("abstract_inverted_index")
+    abstract_text = work.get("abstract")
+    
+    if abstract_inverted_index and isinstance(abstract_inverted_index, dict):
+        # OpenAlex sometimes returns abstract as inverted index (word positions -> words)
+        # Convert to text by sorting words by their positions
+        try:
+            words_dict = {}
+            for word, positions in abstract_inverted_index.items():
+                for pos in positions:
+                    words_dict[pos] = word
+            
+            # Sort by position and join
+            sorted_positions = sorted(words_dict.keys())
+            abstract = " ".join(words_dict[pos] for pos in sorted_positions)
+        except Exception as e:
+            # If conversion fails, try to use text directly if available
+            print(f"DEBUG: Failed to convert abstract_inverted_index to text: {e}")
+            abstract = abstract_text or ""
+    elif abstract_text:
+        # Plain text abstract
+        abstract = abstract_text
+    else:
+        # No abstract available
+        abstract = ""
+    
+    abstract = norm(abstract)
+    
     return {
         "pmid": pmid,
         "pmcid": pmcid,
         "title": norm(work.get("title", "")),
-        "abstract": norm(work.get("abstract", "")),
+        "abstract": abstract,
         "year": year,
         "authors": authors,
         "journal": norm(venue) if venue else None,

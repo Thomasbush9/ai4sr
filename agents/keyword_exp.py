@@ -69,7 +69,7 @@ Provide:
 Respond in JSON format with keys: "keywords_json" (list of strings), "boolean_generic" (string), "boolean_pubmed" (string)."""
 
         messages = [{"role": "user", "content": prompt}]
-        response = chat_completion(messages, temperature=0.5, max_tokens=512)
+        response = chat_completion(messages, agent_type="keyword")
 
         keywords: List[str]
         try:
@@ -109,7 +109,7 @@ class SynonymGeneratorProgram:
 Respond with a JSON list of {n} synonym strings."""
 
         messages = [{"role": "user", "content": prompt}]
-        response = chat_completion(messages, temperature=0.7, max_tokens=256)
+        response = chat_completion(messages, agent_type="keyword")
 
         try:
             synonyms = json.loads(response)
@@ -136,7 +136,7 @@ Keywords: {json.dumps(keywords)}
 Respond with a JSON object with key "concepts" containing a list of concept groups (list of lists of strings)."""
 
         messages = [{"role": "user", "content": prompt}]
-        response = chat_completion(messages, temperature=0.5, max_tokens=512)
+        response = chat_completion(messages, agent_type="keyword")
 
         try:
             result = json.loads(response)

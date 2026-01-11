@@ -13,11 +13,32 @@ load_dotenv()
 
 
 class RAGAgent:
-    """RAG Agent that retrieves relevant papers and answers questions using Azure OpenAI."""
+    """RAG Agent that retrieves relevant papers and answers questions using Azure OpenAI.
+    
+    Supports project-specific vector databases for better isolation.
+    When project_id is provided, uses project-specific vector database.
+    Otherwise, uses shared vector database for backward compatibility.
+    """
 
-    def __init__(self, vector_db_path: str = "data/rag_embeddings", api_key: str = None):
-        self.vector_db_path = Path(vector_db_path)
+    def __init__(self, vector_db_path: str = "data/rag_embeddings", api_key: str = None, project_id: Optional[int] = None):
+        """
+        Initialize RAG Agent.
+        
+        Args:
+            vector_db_path: Base path for vector database storage
+            api_key: Not used (kept for backward compatibility, Azure uses env config)
+            project_id: Optional project ID for project-specific vector database
+        """
+        base_path = Path(vector_db_path)
+        
+        # Use project-specific path if project_id is provided
+        if project_id is not None:
+            self.vector_db_path = base_path / f"project_{project_id}"
+        else:
+            self.vector_db_path = base_path / "shared"
+        
         self.vector_db_path.mkdir(parents=True, exist_ok=True)
+        self.project_id = project_id
 
         # Load or create vector database
         self._load_vector_db()
@@ -27,23 +48,48 @@ class RAGAgent:
         self.embeddings_file = self.vector_db_path / "embeddings.npy"
         self.metadata_file = self.vector_db_path / "metadata.json"
         
-        if self.embeddings_file.exists() and self.metadata_file.exists():
-            self.embeddings = np.load(self.embeddings_file)
-            with open(self.metadata_file, 'r') as f:
-                self.metadata = json.load(f)
-        else:
+        try:
+            if self.embeddings_file.exists() and self.metadata_file.exists():
+                self.embeddings = np.load(self.embeddings_file)
+                with open(self.metadata_file, 'r') as f:
+                    self.metadata = json.load(f)
+                print(f"DEBUG: Loaded vector database from {self.vector_db_path} ({len(self.metadata)} items)")
+            else:
+                self.embeddings = np.array([])
+                self.metadata = []
+                print(f"DEBUG: Created new vector database at {self.vector_db_path}")
+        except Exception as e:
+            print(f"DEBUG: Error loading vector database: {e}")
             self.embeddings = np.array([])
             self.metadata = []
     
     def _save_vector_db(self):
         """Save the vector database to disk."""
-        np.save(self.embeddings_file, self.embeddings)
-        with open(self.metadata_file, 'w') as f:
-            json.dump(self.metadata, f, indent=2)
+        try:
+            np.save(self.embeddings_file, self.embeddings)
+            with open(self.metadata_file, 'w') as f:
+                json.dump(self.metadata, f, indent=2)
+        except Exception as e:
+            print(f"DEBUG: Error saving vector database: {e}")
+            raise
     
     def _get_embedding(self, text: str) -> np.ndarray:
-        """Get embedding for text using Azure OpenAI."""
-        return np.array(get_embedding(text))
+        """Get embedding for text using Azure OpenAI.
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Numpy array of embedding vector
+            
+        Raises:
+            Exception: If embedding generation fails
+        """
+        try:
+            return np.array(get_embedding(text))
+        except Exception as e:
+            print(f"DEBUG: Error getting embedding: {e}")
+            raise
     
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         """Calculate cosine similarity between two vectors."""
@@ -84,28 +130,36 @@ class RAGAgent:
                     print("DEBUG: No papers found in database")
                     return
                 
-                # Convert to RAG format
-                papers_for_rag = []
+                # Convert to RAG format and group by project_id for batch processing
+                papers_by_project = {}
                 for paper in project_papers:
-                    papers_for_rag.append({
+                    paper_project_id = paper.get('project_id')
+                    if paper_project_id not in papers_by_project:
+                        papers_by_project[paper_project_id] = []
+                    
+                    papers_by_project[paper_project_id].append({
                         'id': paper['id'],
-                        'title': paper['title'],
-                        'abstract': paper['abstract'],
-                        'authors': paper['authors'],
-                        'year': paper['year'],
-                        'venue': paper['venue'],
-                        'doi': paper['doi'],
-                        'status': paper['status'],
-                        'score': paper['score'],
-                        'rationale': paper['rationale'],
-                        'project_id': paper['project_id']
+                        'title': paper.get('title', ''),
+                        'abstract': paper.get('abstract', ''),
+                        'authors': paper.get('authors', ''),
+                        'year': paper.get('year'),
+                        'venue': paper.get('venue', ''),
+                        'doi': paper.get('doi', ''),
+                        'status': paper.get('status', ''),
+                        'score': paper.get('score'),
+                        'rationale': paper.get('rationale', ''),
+                        'project_id': paper_project_id
                     })
                 
-                # Add papers to RAG agent (this will generate embeddings)
-                # Use the actual project_id from the database, not 0
-                for paper in papers_for_rag:
-                    self.add_papers([paper], project_id=paper['project_id'])
-                print(f"DEBUG: Loaded {len(papers_for_rag)} papers into RAG agent")
+                # Batch add papers by project (efficient embedding generation)
+                total_loaded = 0
+                for paper_project_id, papers_batch in papers_by_project.items():
+                    if papers_batch:
+                        self.add_papers(papers_batch, project_id=paper_project_id)
+                        total_loaded += len(papers_batch)
+                        print(f"DEBUG: Loaded {len(papers_batch)} papers for project {paper_project_id}")
+                
+                print(f"DEBUG: Total loaded {total_loaded} papers into RAG agent")
                 
         except Exception as e:
             print(f"DEBUG: Warning - Failed to load papers from database: {e}")
@@ -113,20 +167,35 @@ class RAGAgent:
             traceback.print_exc()
     
     def add_papers(self, papers: List[Dict[str, Any]], project_id: int):
-        """Add papers to the vector database with embeddings."""
+        """Add papers to the vector database with embeddings.
+        
+        Args:
+            papers: List of paper dicts with 'id' key (paper ID from database)
+            project_id: Project ID to associate papers with
+        """
+        if not papers:
+            return
+        
         # Check for existing papers to avoid duplicates
-        existing_paper_ids = {meta.get('paper_id') for meta in self.metadata}
+        # Metadata uses 'paper_id' key which corresponds to paper 'id' from database
+        existing_paper_ids = {meta.get('paper_id') for meta in self.metadata if meta.get('type') != 'agent_summary'}
         
         # Prepare texts for embedding
         texts = []
         paper_metadata = []
+        skipped_count = 0
         
         for paper in papers:
-            paper_id = paper.get('id')
+            paper_id = paper.get('id')  # Paper ID from database
+            if paper_id is None:
+                print(f"DEBUG: Skipping paper with no ID")
+                skipped_count += 1
+                continue
+                
             if paper_id in existing_paper_ids:
                 # Update project_id in existing metadata if different
                 for i, meta in enumerate(self.metadata):
-                    if meta.get('paper_id') == paper_id:
+                    if meta.get('paper_id') == paper_id and meta.get('type') != 'agent_summary':
                         old_project_id = meta.get('project_id')
                         if old_project_id != project_id:
                             print(f"DEBUG: Updating project_id for paper {paper_id} from {old_project_id} to {project_id}")
@@ -135,13 +204,14 @@ class RAGAgent:
                         else:
                             print(f"DEBUG: Skipping duplicate paper ID {paper_id} (already in project {project_id})")
                         break
+                skipped_count += 1
                 continue
                 
             # Combine title and abstract for embedding
             text = f"Title: {paper.get('title', '')}\nAbstract: {paper.get('abstract', '')}"
             texts.append(text)
             paper_metadata.append({
-                'paper_id': paper_id,
+                'paper_id': paper_id,  # Store as paper_id in metadata for consistency
                 'project_id': project_id,
                 'title': paper.get('title', ''),
                 'abstract': paper.get('abstract', ''),
@@ -151,24 +221,35 @@ class RAGAgent:
                 'doi': paper.get('doi', ''),
                 'status': paper.get('status', ''),
                 'score': paper.get('score'),
-                'rationale': paper.get('rationale', '')
+                'rationale': paper.get('rationale', ''),
+                'type': 'paper'  # Mark as paper vs summary
             })
 
-        # Get embeddings using Azure OpenAI
+        # Get embeddings using Azure OpenAI (batch processing)
         if texts:
-            embeddings_list = get_embeddings_batch(texts)
-            new_embeddings = np.array(embeddings_list)
+            try:
+                print(f"DEBUG: Generating embeddings for {len(texts)} papers (skipped {skipped_count} duplicates)")
+                embeddings_list = get_embeddings_batch(texts)
+                new_embeddings = np.array(embeddings_list)
 
-            # Add to existing database
-            if len(self.embeddings) == 0:
-                self.embeddings = new_embeddings
-                self.metadata = paper_metadata
-            else:
-                self.embeddings = np.vstack([self.embeddings, new_embeddings])
-                self.metadata.extend(paper_metadata)
-            
-            # Save to disk
-            self._save_vector_db()
+                # Add to existing database
+                if len(self.embeddings) == 0:
+                    self.embeddings = new_embeddings
+                    self.metadata = paper_metadata
+                else:
+                    self.embeddings = np.vstack([self.embeddings, new_embeddings])
+                    self.metadata.extend(paper_metadata)
+                
+                # Save to disk
+                self._save_vector_db()
+                print(f"DEBUG: Successfully added {len(paper_metadata)} papers to vector database")
+            except Exception as e:
+                print(f"DEBUG: Error generating embeddings: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
+        elif skipped_count > 0:
+            print(f"DEBUG: All {skipped_count} papers were duplicates, nothing to add")
     
     def _load_agent_summaries_from_db(self, project_id: int = None):
         """Load agent summaries from SQLite database and generate embeddings if not already present."""
@@ -266,22 +347,39 @@ class RAGAgent:
         
         # Get embeddings using Azure OpenAI
         if texts:
-            embeddings_list = get_embeddings_batch(texts)
-            new_embeddings = np.array(embeddings_list)
+            try:
+                print(f"DEBUG: Generating embeddings for {len(texts)} summaries")
+                embeddings_list = get_embeddings_batch(texts)
+                new_embeddings = np.array(embeddings_list)
 
-            # Add to existing database
-            if len(self.embeddings) == 0:
-                self.embeddings = new_embeddings
-                self.metadata = summary_metadata
-            else:
-                self.embeddings = np.vstack([self.embeddings, new_embeddings])
-                self.metadata.extend(summary_metadata)
+                # Add to existing database
+                if len(self.embeddings) == 0:
+                    self.embeddings = new_embeddings
+                    self.metadata = summary_metadata
+                else:
+                    self.embeddings = np.vstack([self.embeddings, new_embeddings])
+                    self.metadata.extend(summary_metadata)
 
-            # Save to disk
-            self._save_vector_db()
+                # Save to disk
+                self._save_vector_db()
+                print(f"DEBUG: Successfully added {len(summary_metadata)} summaries to vector database")
+            except Exception as e:
+                print(f"DEBUG: Error generating summary embeddings: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
     
     def retrieve_relevant_papers(self, question: str, project_id: int, top_k: int = 5) -> List[Dict[str, Any]]:
-        """Retrieve most relevant papers for a question."""
+        """Retrieve most relevant papers for a question.
+        
+        Args:
+            question: The question to retrieve papers for
+            project_id: Project ID to filter papers (must match)
+            top_k: Number of top papers to retrieve
+            
+        Returns:
+            List of relevant paper/summary metadata dictionaries
+        """
         if len(self.embeddings) == 0:
             print("DEBUG: No embeddings available for retrieval")
             return []
@@ -289,30 +387,42 @@ class RAGAgent:
         print(f"DEBUG: Retrieving papers for project {project_id}, question: '{question}'")
         
         # Get embedding for the question
-        question_embedding = self._get_embedding(question)
+        try:
+            question_embedding = self._get_embedding(question)
+        except Exception as e:
+            print(f"DEBUG: Error getting question embedding: {e}")
+            return []
         
-        # Calculate similarities
+        # Calculate similarities with project filtering
         similarities = []
+        project_id_int = int(project_id) if project_id is not None else None
+        
         for i, embedding in enumerate(self.embeddings):
-            # Only consider papers from the same project (or all papers if project_id is 0)
+            # Get paper project ID from metadata
             paper_project_id = self.metadata[i].get('project_id')
+            
             # Convert to int for comparison (handle None and string cases)
             try:
                 paper_project_id = int(paper_project_id) if paper_project_id is not None else None
-                project_id_int = int(project_id) if project_id is not None else None
             except (ValueError, TypeError):
                 paper_project_id = None
-                project_id_int = None
             
-            if project_id_int == 0 or paper_project_id == project_id_int:
-                similarity = self._cosine_similarity(question_embedding, embedding)
-                similarities.append((i, similarity))
+            # Filter by project_id (strict matching)
+            # If using project-specific vector DB, all items should match, but double-check
+            if paper_project_id == project_id_int or (self.project_id is None and project_id_int == paper_project_id):
+                try:
+                    similarity = self._cosine_similarity(question_embedding, embedding)
+                    similarities.append((i, similarity))
+                except Exception as e:
+                    print(f"DEBUG: Error calculating similarity for item {i}: {e}")
+                    continue
         
-        print(f"DEBUG: Found {len(similarities)} papers matching project criteria (project_id={project_id}, total embeddings={len(self.embeddings)})")
+        print(f"DEBUG: Found {len(similarities)} papers matching project {project_id} (total embeddings={len(self.embeddings)})")
         if len(similarities) == 0 and len(self.embeddings) > 0:
             # Debug: show project_ids in metadata
             project_ids_in_metadata = [m.get('project_id') for m in self.metadata]
-            print(f"DEBUG: Project IDs in metadata: {set(project_ids_in_metadata)}")
+            unique_project_ids = set(p for p in project_ids_in_metadata if p is not None)
+            print(f"DEBUG: Project IDs in metadata: {unique_project_ids} (looking for {project_id_int})")
         
         # Sort by similarity and get top_k
         similarities.sort(key=lambda x: x[1], reverse=True)
@@ -378,11 +488,14 @@ Context:
 
 Provide a comprehensive answer based on the context."""
 
-        messages = [
-            {"role": "system", "content": "You are an expert systematic review researcher. Provide comprehensive answers based on the retrieved literature."},
-            {"role": "user", "content": prompt}
-        ]
-        answer = chat_completion(messages, temperature=0.5, max_tokens=1024)
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            answer = chat_completion(messages, agent_type="rag")
+        except Exception as e:
+            print(f"DEBUG: Error generating RAG answer: {e}")
+            import traceback
+            traceback.print_exc()
+            return f"I encountered an error while generating an answer: {str(e)}. Please try again or contact support."
         
         # Add relevant papers section
         papers_section = "\n\n**Relevant Papers:**\n"

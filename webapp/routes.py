@@ -112,29 +112,90 @@ def test_azure_config():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
+@api_bp.post("/projects")
+def create_project():
+    """Create a new project."""
+    try:
+        data = request.get_json(force=True) if request.is_json else {}
+        project_name = data.get("name", "").strip()
+        
+        if not project_name:
+            return jsonify({"error": "Project name is required"}), 400
+        
+        if project_name.lower() == "default":
+            return jsonify({"error": "Project name 'default' is reserved"}), 400
+        
+        with get_db() as db:
+            from db.repository import get_or_create_project
+            
+            project_id = get_or_create_project(db, project_name)
+            db.commit()
+            
+            return jsonify({
+                "message": f"Project '{project_name}' created successfully",
+                "project_id": project_id,
+                "name": project_name
+            })
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @api_bp.delete("/projects/<int:project_id>")
 def delete_project(project_id):
     """Delete a project and all its associated data"""
     try:
+        from pathlib import Path
+        import shutil
+        
         with get_db() as db:
             # Check if project exists
             project = db.execute("SELECT name FROM projects WHERE id = ?", (project_id,)).fetchone()
             if not project:
                 return jsonify({"error": "Project not found"}), 404
             
-            # Delete all conversations and messages for this project
-            db.execute("DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = ?)", (project_id,))
-            db.execute("DELETE FROM conversations WHERE project_id = ?", (project_id,))
+            project_name = project['name']
+            
+            # Delete all associated data (ON DELETE CASCADE should handle most, but we'll be explicit)
+            # Delete agent summaries
+            db.execute("DELETE FROM agent_summaries WHERE project_id = ?", (project_id,))
+            
+            # Delete PICO data
+            db.execute("DELETE FROM pico_expansions WHERE project_id = ?", (project_id,))
+            db.execute("DELETE FROM pico WHERE project_id = ?", (project_id,))
+            
+            # Delete ingestion logs
+            db.execute("DELETE FROM review_ingestion_logs WHERE project_id = ?", (project_id,))
+            
+            # Delete screening labels (papers will cascade)
+            db.execute("DELETE FROM screening_labels WHERE project_id = ?", (project_id,))
+            
+            # Delete FTS data for papers
+            db.execute("DELETE FROM papers_fts WHERE rowid IN (SELECT id FROM papers WHERE project_id = ?)", (project_id,))
             
             # Delete all papers for this project
             db.execute("DELETE FROM papers WHERE project_id = ?", (project_id,))
+            
+            # Delete all conversations and messages for this project
+            db.execute("DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = ?)", (project_id,))
+            db.execute("DELETE FROM conversations WHERE project_id = ?", (project_id,))
             
             # Delete the project itself
             db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
             
             db.commit()
             
-            return jsonify({"message": f"Project '{project['name']}' deleted successfully"})
+            # Delete RAG embeddings directory for this project
+            try:
+                from config import REPO_ROOT
+                rag_dir = REPO_ROOT / "data" / "rag_embeddings" / f"project_{project_id}"
+                if rag_dir.exists():
+                    shutil.rmtree(rag_dir)
+                    print(f"DEBUG: Deleted RAG embeddings directory: {rag_dir}", flush=True)
+            except Exception as e:
+                print(f"WARNING: Failed to delete RAG embeddings directory: {e}", flush=True)
+                # Don't fail the deletion if RAG cleanup fails
+            
+            return jsonify({"message": f"Project '{project_name}' deleted successfully"})
             
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -362,8 +423,10 @@ def get_project_pico(project_id):
 
 @api_bp.post("/projects/<int:project_id>/expand-pico")
 def expand_project_pico(project_id):
-    """Expand PICO into search queries using DSPy."""
+    """Expand PICO into search queries using Azure AI Foundry."""
     try:
+        print(f"DEBUG: Starting PICO expansion for project {project_id}", flush=True)
+        
         # Get API key from request or use default
         data = request.get_json(force=True) if request.is_json else {}
         api_key = data.get("api_key")
@@ -373,16 +436,25 @@ def expand_project_pico(project_id):
             pico = get_pico(db, project_id)
             
             if not pico:
+                print(f"ERROR: PICO not found for project {project_id}", flush=True)
                 return jsonify({"error": "PICO not found for this project. Please create PICO first."}), 404
         
-        # Expand PICO
+        print(f"DEBUG: PICO found, expanding...", flush=True)
+        # Expand PICO (this may take time - Azure API call)
         expansion_result = expand_pico(pico, project_id, api_key=api_key)
         
+        print(f"DEBUG: PICO expansion completed successfully", flush=True)
         return jsonify(expansion_result)
         
     except ValueError as e:
+        print(f"ERROR: PICO expansion ValueError: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 400
     except Exception as e:
+        print(f"ERROR: PICO expansion failed: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -409,6 +481,8 @@ def generate_project_corpus(project_id):
     Uses server-side config limits. Ignores any max_results in request body.
     """
     try:
+        print(f"DEBUG: Starting corpus generation for project {project_id}", flush=True)
+        
         # Ignore max_results from request - use server config instead
         data = request.get_json(force=True) if request.is_json else {}
         # api_key can still be passed for compatibility, but max_results is ignored
@@ -418,14 +492,24 @@ def generate_project_corpus(project_id):
             expansion = get_pico_expansion(db, project_id)
             
             if not expansion:
+                print(f"ERROR: No PICO expansion found for project {project_id}", flush=True)
                 return jsonify({
                     "error": "No expansion found for this project. Please run expand-pico first."
                 }), 404
             
             pubmed_query = expansion.get("pubmed_query")
             openalex_query = expansion.get("openalex_query")
+            
+            print(f"DEBUG: Found PICO expansion - PubMed query length: {len(pubmed_query) if pubmed_query else 0}, OpenAlex query length: {len(openalex_query) if openalex_query else 0}", flush=True)
+            
+            if not pubmed_query and not openalex_query:
+                print(f"ERROR: Both queries are empty for project {project_id}", flush=True)
+                return jsonify({
+                    "error": "PICO expansion produced empty queries. Please expand PICO again or check the PICO content."
+                }), 400
         
         # Generate corpus (max_results parameter is ignored, uses config limits)
+        print(f"DEBUG: Starting corpus generation from sources...", flush=True)
         result = generate_corpus(
             project_id=project_id,
             pubmed_query=pubmed_query,
@@ -434,8 +518,9 @@ def generate_project_corpus(project_id):
             api_key=data.get("api_key")
         )
         
+        print(f"DEBUG: Corpus generation completed successfully", flush=True)
         # Return simplified JSON response
-        return jsonify({
+        response_data = {
             "status": "completed",
             "project_id": project_id,
             "sources": {
@@ -450,9 +535,18 @@ def generate_project_corpus(project_id):
             },
             "total_unique": result["total_unique"],
             "inserted_count": result["inserted_count"]
-        })
+        }
+        
+        # Include abstract coverage if available
+        if "abstract_coverage" in result:
+            response_data["abstract_coverage"] = result["abstract_coverage"]
+        
+        return jsonify(response_data)
         
     except Exception as e:
+        print(f"ERROR: Corpus generation failed: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e), "status": "failed"}), 500
 
 

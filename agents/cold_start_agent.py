@@ -29,11 +29,8 @@ Provide a brief explanation of your decision.
 
 Respond in JSON format with keys: "decision" (INCLUDE or EXCLUDE) and "rationale" (brief explanation)."""
 
-        messages = [
-            {"role": "system", "content": "You are an expert systematic review researcher. Think step-by-step through the PICO criteria."},
-            {"role": "user", "content": prompt}
-        ]
-        response = chat_completion(messages, temperature=0.3, max_tokens=512)
+        messages = [{"role": "user", "content": prompt}]
+        response = chat_completion(messages, agent_type="cold-start")
 
         try:
             result = json.loads(response)

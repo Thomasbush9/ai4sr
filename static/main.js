@@ -17,6 +17,7 @@ const sidebarToggleFloat = document.getElementById("sidebar-toggle-float");
 const sidebarProjects = document.getElementById("sidebar-projects");
 const sidebarSearch = document.getElementById("sidebar-search");
 const deleteProjectBtn = document.getElementById("delete-project");
+const createProjectBtn = document.getElementById("create-project");
 
 function escapeHtml(str) {
   return str.replace(/[&<>"']/g, s => ({
@@ -1032,19 +1033,70 @@ function initSettings() {
   loadSettings();
 }
 
+// Create project functionality
+function initCreateProject() {
+  createProjectBtn.addEventListener('click', async () => {
+    const projectName = prompt('Enter a name for the new project:');
+    
+    if (!projectName || !projectName.trim()) {
+      return; // User cancelled or entered empty name
+    }
+    
+    const trimmedName = projectName.trim();
+    
+    if (trimmedName.toLowerCase() === "default") {
+      showNotification("Project name 'default' is reserved", 'error');
+      return;
+    }
+    
+    try {
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmedName })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        showNotification(`Project '${trimmedName}' created successfully`, 'success');
+        
+        // Load the new project
+        await loadProject(data.project_id, trimmedName);
+        
+        // Refresh sidebar
+        loadSidebarProjects();
+      } else {
+        const error = await response.json();
+        showNotification(`Failed to create project: ${error.error}`, 'error');
+      }
+    } catch (error) {
+      showNotification(`Error creating project: ${error.message}`, 'error');
+    }
+  });
+}
+
 // Delete project functionality
 function initDeleteProject() {
   deleteProjectBtn.addEventListener('click', async () => {
-    if (!conversationId) {
+    const projectName = document.getElementById("project_id")?.value?.trim();
+    
+    if (!projectName || projectName === "default") {
       showNotification('No project selected to delete', 'error');
       return;
     }
 
-    const projectName = document.getElementById("project_id")?.value || "current project";
+    // Get the actual project ID from the project name
+    let projectId;
+    try {
+      projectId = await getOrCreateProject(projectName);
+    } catch (error) {
+      showNotification(`Failed to find project: ${error.message}`, 'error');
+      return;
+    }
     
-    if (confirm(`Are you sure you want to delete "${projectName}" and all its conversations? This action cannot be undone.`)) {
+    if (confirm(`Are you sure you want to delete "${projectName}" and all its data (papers, conversations, PICO, etc.)? This action cannot be undone.`)) {
       try {
-        const response = await fetch(`/api/projects/${conversationId}`, {
+        const response = await fetch(`/api/projects/${projectId}`, {
           method: 'DELETE'
         });
 
@@ -1053,7 +1105,8 @@ function initDeleteProject() {
           // Reset to default project
           conversationId = null;
           document.getElementById("project_id").value = "";
-          loadProjects();
+          document.getElementById("pico-project-id").value = "";
+          loadSidebarProjects();
           startConversation();
         } else {
           const error = await response.json();
@@ -1233,8 +1286,21 @@ async function generateCorpus() {
     message += `**PubMed:** ${data.sources.pubmed.fetched} fetched, ${data.sources.pubmed.unique} unique\n`;
     message += `**OpenAlex:** ${data.sources.openalex.fetched} fetched, ${data.sources.openalex.unique} unique\n`;
     message += `**Total Unique Papers:** ${data.total_unique}\n`;
-    message += `**Inserted:** ${data.inserted_count} papers with status UNSCREENED\n\n`;
-    message += 'Papers are now available in your project for screening.';
+    message += `**Inserted:** ${data.inserted_count} papers with status UNSCREENED\n`;
+    
+    // Add abstract coverage stats if available
+    if (data.abstract_coverage) {
+      const coverage = data.abstract_coverage;
+      message += `**Abstract Coverage:** ${coverage.with_abstracts}/${data.total_unique} (${coverage.percentage}%)\n`;
+      if (coverage.without_abstracts > 0) {
+        message += `⚠️ ${coverage.without_abstracts} papers are missing abstracts\n`;
+      }
+    }
+    
+    message += '\n📚 **Next Steps:**\n';
+    message += '1. **Start Screening** - Review and label papers as INCLUDE or EXCLUDE\n';
+    message += '2. Papers are now available in your project for manual or AI-assisted screening\n';
+    message += '3. RAG embeddings have been updated - you can ask questions about the corpus';
     
     addMessage('assistant', message, 'pico');
   } catch (error) {
@@ -2594,6 +2660,7 @@ async function exportPapers(format) {
 initTheme();
 initSidebar();
 initSettings();
+initCreateProject();
 initDeleteProject();
 initPicoMode();
 initDbViewer();

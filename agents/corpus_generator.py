@@ -353,12 +353,69 @@ def generate_corpus(
     pubmed_fetched = len(pubmed_records)
     openalex_fetched = len(openalex_records)
     
+    # Add abstract fallback for OpenAlex papers missing abstracts
+    # Try to fetch from PubMed if we have PMID or DOI
+    def _fetch_abstract_fallback(record):
+        """Fetch abstract from PubMed if missing and we have PMID/DOI."""
+        if record.get("abstract") and record.get("abstract").strip():
+            return record  # Already has abstract
+        
+        pmid = record.get("pmid")
+        doi = record.get("doi")
+        
+        if not (pmid or doi):
+            return record  # No way to fetch
+        
+        # Try to fetch from PubMed
+        try:
+            fetch = PubMedFetcher()
+            art = None
+            
+            if pmid:
+                try:
+                    art = fetch.article_by_pmid(pmid)
+                except Exception:
+                    pass
+            
+            if not art and doi:
+                try:
+                    art = fetch.article_by_doi(doi)
+                except Exception:
+                    pass
+            
+            if art:
+                abstract = norm(getattr(art, "abstract", None))
+                if abstract and abstract.strip():
+                    record["abstract"] = abstract
+                    print(f"DEBUG: Fetched abstract from PubMed for {record.get('title', '')[:50]}...", flush=True)
+        except Exception as e:
+            # Silently fail - abstract fallback is optional
+            pass
+        
+        return record
+    
+    # Apply abstract fallback for records missing abstracts
+    records_with_fallback = []
+    for record in all_records:
+        if record.get("source") == "openalex" and (not record.get("abstract") or not record.get("abstract").strip()):
+            record = _fetch_abstract_fallback(record)
+        records_with_fallback.append(record)
+    
     # Deduplicate (removes cross-source duplicates)
-    deduplicated = deduplicate_documents(all_records)
+    deduplicated = deduplicate_documents(records_with_fallback)
     
     # Count unique per source after deduplication (for reporting)
     pubmed_unique = sum(1 for doc in deduplicated if doc.get("source") == "pubmed")
     openalex_unique = sum(1 for doc in deduplicated if doc.get("source") == "openalex")
+    
+    # Track abstract availability
+    papers_with_abstracts = sum(1 for doc in deduplicated if doc.get("abstract") and doc.get("abstract").strip())
+    papers_without_abstracts = len(deduplicated) - papers_with_abstracts
+    abstract_coverage = (papers_with_abstracts / len(deduplicated) * 100) if deduplicated else 0
+    
+    print(f"DEBUG: Abstract coverage: {papers_with_abstracts}/{len(deduplicated)} ({abstract_coverage:.1f}%)", flush=True)
+    if papers_without_abstracts > 0:
+        print(f"WARNING: {papers_without_abstracts} papers are missing abstracts", flush=True)
     
     # Store in database
     with connect() as con:
@@ -375,6 +432,53 @@ def generate_corpus(
         }
         save_ingestion_log(con, project_id, log_data)
         con.commit()
+        
+        # Integrate RAG: Update embeddings for newly inserted papers
+        print(f"DEBUG: Updating RAG embeddings for project {project_id}...", flush=True)
+        try:
+            from agents.rag_agent import RAGAgent
+            
+            rag_agent = RAGAgent(project_id=project_id)
+            
+            # Query newly inserted papers from database directly
+            # Get all papers for this project (including UNSCREENED)
+            cur = con.execute("""
+                SELECT id, title, abstract, authors, year, venue, doi, status, 
+                       score, rationale, pmid, pmcid, project_id
+                FROM papers
+                WHERE project_id = ?
+                ORDER BY added_at DESC
+            """, (project_id,))
+            
+            papers = []
+            for row in cur.fetchall():
+                papers.append({
+                    'id': row['id'],
+                    'title': row.get('title', ''),
+                    'abstract': row.get('abstract', ''),
+                    'authors': row.get('authors', ''),
+                    'year': row.get('year'),
+                    'venue': row.get('venue', ''),
+                    'doi': row.get('doi', ''),
+                    'status': row.get('status', 'UNSCREENED'),
+                    'score': row.get('score'),
+                    'rationale': row.get('rationale', ''),
+                    'project_id': project_id
+                })
+            
+            if papers:
+                # Add papers to RAG agent (batch processing)
+                # The add_papers method will skip duplicates automatically
+                rag_agent.add_papers(papers, project_id)
+                print(f"DEBUG: Successfully updated RAG embeddings for {len(papers)} papers", flush=True)
+            else:
+                print(f"DEBUG: No papers found for RAG update", flush=True)
+                
+        except Exception as e:
+            print(f"WARNING: Failed to update RAG embeddings: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            # Don't fail corpus generation if RAG update fails
     
     return {
         "pubmed_count": pubmed_fetched,
@@ -383,5 +487,10 @@ def generate_corpus(
         "openalex_unique": openalex_unique,
         "total_unique": len(deduplicated),
         "inserted_count": inserted_count,
+        "abstract_coverage": {
+            "with_abstracts": papers_with_abstracts,
+            "without_abstracts": papers_without_abstracts,
+            "percentage": round(abstract_coverage, 1)
+        }
     }
 

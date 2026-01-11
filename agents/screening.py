@@ -29,7 +29,7 @@ Abstract: {abstract or ""}
 Respond in JSON format with keys: "decision" (include/maybe/exclude) and "score" (0-100)."""
 
         messages = [{"role": "user", "content": prompt}]
-        response = chat_completion(messages, temperature=0.3, max_tokens=256)
+        response = chat_completion(messages, agent_type="screener")
 
         try:
             result = json.loads(response)
@@ -59,11 +59,8 @@ Abstract: {abstract}
 
 Respond in JSON format with keys: "decision" (include/maybe/exclude) and "rationale" (detailed PICO analysis)."""
 
-        messages = [
-            {"role": "system", "content": "You are an expert systematic review researcher. Think step-by-step through the PICO framework."},
-            {"role": "user", "content": prompt}
-        ]
-        response = chat_completion(messages, temperature=0.3, max_tokens=512)
+        messages = [{"role": "user", "content": prompt}]
+        response = chat_completion(messages, agent_type="cot-screener")
 
         try:
             result = json.loads(response)

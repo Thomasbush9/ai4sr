@@ -83,6 +83,8 @@ class PICOExpansionProgram:
 
     def forward(self, pico_description: str) -> Dict[str, Any]:
         """Expand PICO description into queries and keywords."""
+        print(f"DEBUG: Expanding PICO description: {pico_description[:100]}...", flush=True)
+        
         prompt = f"""Expand this PICO framework description into search queries and keywords.
 
 PICO Description: {pico_description}
@@ -95,40 +97,43 @@ Provide:
 
 Respond in JSON format with keys: "question_summary" (string), "pubmed_query" (string), "openalex_query" (string), "pico_keywords" (object with keys: population, intervention, comparison, outcome, study_design - each containing a list of keyword strings)."""
 
-        messages = [{"role": "user", "content": prompt}]
-        response = chat_completion(messages, temperature=0.5, max_tokens=2048)
-
         try:
-            result = json.loads(response)
-            pico_keywords = result.get("pico_keywords", {})
-            if not isinstance(pico_keywords, dict):
-                pico_keywords = {
-                    "population": [],
-                    "intervention": [],
-                    "comparison": [],
-                    "outcome": [],
-                    "study_design": []
-                }
+            messages = [{"role": "user", "content": prompt}]
+            print(f"DEBUG: Calling Azure PICO agent with prompt length {len(prompt)}...", flush=True)
+            response = chat_completion(messages, agent_type="pico", timeout=90)  # 90 second timeout for PICO expansion
+            print(f"DEBUG: Received response from PICO agent (length: {len(response) if response else 0})", flush=True)
+            
+            if not response or not response.strip():
+                raise ValueError("Empty response from Azure agent")
+            
+            try:
+                result = json.loads(response)
+                pico_keywords = result.get("pico_keywords", {})
+                if not isinstance(pico_keywords, dict):
+                    pico_keywords = {
+                        "population": [],
+                        "intervention": [],
+                        "comparison": [],
+                        "outcome": [],
+                        "study_design": []
+                    }
 
-            return {
-                "question_summary": result.get("question_summary", ""),
-                "pubmed_query": result.get("pubmed_query", ""),
-                "openalex_query": result.get("openalex_query", ""),
-                "pico_keywords": pico_keywords,
-            }
-        except json.JSONDecodeError:
-            return {
-                "question_summary": "",
-                "pubmed_query": "",
-                "openalex_query": "",
-                "pico_keywords": {
-                    "population": [],
-                    "intervention": [],
-                    "comparison": [],
-                    "outcome": [],
-                    "study_design": []
+                print(f"DEBUG: Successfully parsed PICO expansion result", flush=True)
+                return {
+                    "question_summary": result.get("question_summary", ""),
+                    "pubmed_query": result.get("pubmed_query", ""),
+                    "openalex_query": result.get("openalex_query", ""),
+                    "pico_keywords": pico_keywords,
                 }
-            }
+            except json.JSONDecodeError as e:
+                print(f"DEBUG: Failed to parse JSON response: {e}", flush=True)
+                print(f"DEBUG: Response was: {response[:500]}", flush=True)
+                raise ValueError(f"Failed to parse JSON response from Azure agent: {str(e)}")
+        except Exception as e:
+            print(f"ERROR: PICO expansion failed: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            raise
 
 
 def expand_pico(pico: PICO, project_id: int, api_key: Optional[str] = None) -> Dict[str, Any]:

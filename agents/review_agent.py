@@ -46,7 +46,7 @@ Extract:
 Respond in JSON format with these exact keys."""
 
         messages = [{"role": "user", "content": prompt}]
-        response = chat_completion(messages, temperature=0.3, max_tokens=512)
+        response = chat_completion(messages, agent_type="review")
 
         try:
             result = json.loads(response)
@@ -101,11 +101,8 @@ Paper Summaries:
 
 Provide a comprehensive overview synthesizing the findings across all papers."""
 
-        messages = [
-            {"role": "system", "content": "You are an expert systematic review researcher."},
-            {"role": "user", "content": prompt}
-        ]
-        response = chat_completion(messages, temperature=0.5, max_tokens=1024)
+        messages = [{"role": "user", "content": prompt}]
+        response = chat_completion(messages, agent_type="review")
 
         return response or ""
 

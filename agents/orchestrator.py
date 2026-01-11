@@ -359,7 +359,8 @@ def literature_review(query: str, project_id: int, n: int = 10, api_key: str = N
     # Update RAG embeddings with new papers
     print("DEBUG: Updating RAG embeddings...")
     try:
-        rag_agent = RAGAgent()
+        # Use project-specific RAG agent for better isolation
+        rag_agent = RAGAgent(project_id=project_id)
         # Get the papers that were just added to the database
         with connect() as con:
             included_papers = list_included(con, project_id)
@@ -371,22 +372,27 @@ def literature_review(query: str, project_id: int, n: int = 10, api_key: str = N
         for paper in all_papers:
             papers_for_rag.append({
                 'id': paper['id'],
-                'title': paper['title'],
-                'abstract': paper['abstract'],
-                'authors': paper['authors'],
-                'year': paper['year'],
-                'venue': paper['venue'],
-                'doi': paper['doi'],
-                'status': paper['status'],
-                'score': paper['score'],
-                'rationale': paper['rationale']
+                'title': paper.get('title', ''),
+                'abstract': paper.get('abstract', ''),
+                'authors': paper.get('authors', ''),
+                'year': paper.get('year'),
+                'venue': paper.get('venue', ''),
+                'doi': paper.get('doi', ''),
+                'status': paper.get('status', ''),
+                'score': paper.get('score'),
+                'rationale': paper.get('rationale', '')
             })
         
-        # Add papers to RAG agent
-        rag_agent.add_papers(papers_for_rag, project_id)
-        print("DEBUG: RAG embeddings updated successfully")
+        # Add papers to RAG agent (batch processing)
+        if papers_for_rag:
+            rag_agent.add_papers(papers_for_rag, project_id)
+            print(f"DEBUG: RAG embeddings updated successfully for project {project_id} ({len(papers_for_rag)} papers)")
+        else:
+            print(f"DEBUG: No papers to add to RAG embeddings for project {project_id}")
     except Exception as e:
         print(f"DEBUG: Warning - Failed to update RAG embeddings: {e}")
+        import traceback
+        traceback.print_exc()
     
     print(f"DEBUG: Literature review completed successfully: {result}")
     return result
@@ -400,7 +406,7 @@ def rag_answer(question: str, project_id: int, db_conn=None, top_k: int = 5, api
         project_id: The project ID to search within
         db_conn: Database connection (optional, will create if not provided)
         top_k: Number of most relevant papers to retrieve
-        api_key: OpenAI API key (optional, will use env var if not provided)
+        api_key: Not used (kept for backward compatibility, Azure agents use environment config)
     
     Returns:
         Answer string based on retrieved papers
@@ -408,16 +414,8 @@ def rag_answer(question: str, project_id: int, db_conn=None, top_k: int = 5, api
     print(f"DEBUG: RAG answering question: '{question}' for project {project_id}")
     
     try:
-        # Get the API key to use
-        key_to_use = api_key if api_key else OPENAI_KEY
-        if not key_to_use or key_to_use == "your_openai_api_key_here":
-            return "Please configure your OpenAI API key in settings before using RAG mode."
-        
-        # Configure DSPy safely
-        configure_dspy_safely(key_to_use)
-        
-        # Initialize RAG agent with the API key
-        rag_agent = RAGAgent(api_key=key_to_use)
+        # Initialize RAG agent with project-specific vector database
+        rag_agent = RAGAgent(project_id=project_id)
         
         # Load papers for the specific project only
         rag_agent._load_papers_from_db(project_id)
@@ -433,6 +431,8 @@ def rag_answer(question: str, project_id: int, db_conn=None, top_k: int = 5, api
         
     except Exception as e:
         print(f"DEBUG: RAG error: {e}")
+        import traceback
+        traceback.print_exc()
         return f"I encountered an error while answering your question: {str(e)}. Please make sure you have run a literature review first to populate the database."
 if __name__ == "__main__":
 
@@ -443,17 +443,16 @@ if __name__ == "__main__":
     query = args.q
     n = args.n
 
-    # DSPy is already configured globally at module import
-
+    # Use Azure-based agents
     keyword_gen = KeywordGeneratorProgram()
-    concept_gen = dspy.Predict(ConceptGenerator)
+    concept_gen = ConceptGeneratorProgram()
     screener = Screener()
-    keywords = keyword_gen(query)
+    keywords = keyword_gen.forward(query)
     boolean_keys = keywords["boolean_pubmed"]
     keywords = keywords["keywords"]
 
-    # skip syn now
-    concepts = concept_gen(keywords=keywords).concepts
+    # Generate concepts
+    concepts = concept_gen(keywords=keywords)["concepts"]
     concepts = parse_concepts(concepts)
     q = build_pubmed_query_from_concepts(concepts, field="tiab", mesh_hints=None)
 #    q = append_filters(q, english=True, humans=True, year_from=2015)
