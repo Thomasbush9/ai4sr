@@ -6,7 +6,6 @@ const sendBtn = document.getElementById("send");
 const convMeta = document.getElementById("conv-meta");
 const exportBtn = document.getElementById("export-chat");
 const helpBtn = document.getElementById("help-shortcuts");
-const themeBtn = document.getElementById("theme-toggle");
 const settingsBtn = document.getElementById("settings-button");
 
 // Sidebar elements
@@ -376,19 +375,6 @@ function initTheme() {
 function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('ai4sr-theme', theme);
-  
-  const themeIcon = themeBtn.querySelector('.theme-icon');
-  const themeText = themeBtn.querySelector('.theme-text');
-  
-  if (theme === 'dark') {
-    themeIcon.textContent = '☀️';
-    themeText.textContent = 'Light';
-    themeBtn.title = 'Switch to Light Mode';
-  } else {
-    themeIcon.textContent = '🌙';
-    themeText.textContent = 'Dark';
-    themeBtn.title = 'Switch to Dark Mode';
-  }
 }
 
 function toggleTheme() {
@@ -420,7 +406,16 @@ function handleKeyboardShortcuts(e) {
 
 async function startConversation() {
   const mod = document.querySelector('input[name="mod"]:checked').value;
-  const projectName = document.getElementById("project_id")?.value?.trim() || "default";
+  let projectName;
+  if (mod === "literature") {
+    projectName = document.getElementById("literature-project-id")?.value?.trim() || "default";
+  } else if (mod === "pico") {
+    projectName = document.getElementById("pico-project-id")?.value?.trim() || "default";
+  } else if (mod === "screening") {
+    projectName = document.getElementById("screening-project-id")?.value?.trim() || "default";
+  } else {
+    projectName = document.getElementById("project_id")?.value?.trim() || "default";
+  }
   
   // Only start new conversation if we don't have one
   if (!conversationId) {
@@ -444,6 +439,11 @@ async function startConversation() {
     deleteProjectBtn.style.display = 'flex';
   } else {
     deleteProjectBtn.style.display = 'none';
+  }
+  
+  // Update literature buttons if in literature mode
+  if (mod === "literature") {
+    updateLiteratureButtons();
   }
   
   // Refresh sidebar to show new conversation
@@ -472,25 +472,30 @@ async function startConversation() {
 function updateInputSection() {
   const mod = document.querySelector('input[name="mod"]:checked').value;
   const standardSection = document.getElementById("standard-input-section");
+  const literatureSection = document.getElementById("literature-input-section");
   const picoSection = document.getElementById("pico-input-section");
   const screeningSection = document.getElementById("screening-input-section");
   
   if (mod === "pico") {
     standardSection.style.display = "none";
+    literatureSection.style.display = "none";
     picoSection.style.display = "block";
     screeningSection.style.display = "none";
     // Sync project ID
-    const projectId = document.getElementById("project_id")?.value || "";
+    const projectId = document.getElementById("project_id")?.value || 
+                     document.getElementById("literature-project-id")?.value || "";
     if (projectId) {
       document.getElementById("pico-project-id").value = projectId;
     }
   } else if (mod === "screening") {
     standardSection.style.display = "none";
+    literatureSection.style.display = "none";
     picoSection.style.display = "none";
     screeningSection.style.display = "block";
     // Sync project ID
     const projectId = document.getElementById("project_id")?.value || 
-                     document.getElementById("pico-project-id")?.value || "";
+                     document.getElementById("pico-project-id")?.value ||
+                     document.getElementById("literature-project-id")?.value || "";
     if (projectId) {
       document.getElementById("screening-project-id").value = projectId;
       // Check button visibility if project exists
@@ -501,37 +506,77 @@ function updateInputSection() {
     }
     // Initialize screening mode
     initScreeningMode();
+  } else if (mod === "literature") {
+    standardSection.style.display = "none";
+    literatureSection.style.display = "block";
+    picoSection.style.display = "none";
+    screeningSection.style.display = "none";
+    // Sync project ID
+    const projectId = document.getElementById("project_id")?.value || 
+                     document.getElementById("pico-project-id")?.value ||
+                     document.getElementById("screening-project-id")?.value || "";
+    if (projectId) {
+      document.getElementById("literature-project-id").value = projectId;
+    }
+    // Sync paper limit
+    const paperLimit = document.getElementById("paper_limit")?.value || "10";
+    document.getElementById("literature-paper-limit").value = paperLimit;
+    // Update literature mode button visibility
+    updateLiteratureButtons();
   } else {
+    // RAG mode
     standardSection.style.display = "block";
+    literatureSection.style.display = "none";
     picoSection.style.display = "none";
     screeningSection.style.display = "none";
     // Sync project ID
     const picoProjectId = document.getElementById("pico-project-id")?.value || "";
     const screeningProjectId = document.getElementById("screening-project-id")?.value || "";
+    const literatureProjectId = document.getElementById("literature-project-id")?.value || "";
     if (picoProjectId) {
       document.getElementById("project_id").value = picoProjectId;
     } else if (screeningProjectId) {
       document.getElementById("project_id").value = screeningProjectId;
+    } else if (literatureProjectId) {
+      document.getElementById("project_id").value = literatureProjectId;
     }
   }
 }
 
 async function sendMessage() {
-  const text = input.value.trim();
+  const mod = document.querySelector('input[name="mod"]:checked').value;
+  
+  // Get the correct input field based on mode
+  let textInput, text;
+  if (mod === "literature") {
+    textInput = document.getElementById("literature-input");
+    text = textInput?.value.trim() || "";
+  } else {
+    textInput = input;
+    text = input.value.trim();
+  }
+  
   if (!text || !conversationId) return;
 
-  const mod = document.querySelector('input[name="mod"]:checked').value;
   if (mod === "pico" || mod === "screening") {
     // PICO and Screening modes use separate handlers
     return;
   }
 
-  const pid = (document.getElementById("project_id")?.value || "").trim();
-  const paperLimit = Math.max(1, Math.min(50, parseInt(document.getElementById("paper_limit")?.value || "10")));
+  // Get project ID and paper limit based on mode
+  let pid, paperLimit;
+  if (mod === "literature") {
+    pid = (document.getElementById("literature-project-id")?.value || "").trim();
+    paperLimit = Math.max(1, Math.min(50, parseInt(document.getElementById("literature-paper-limit")?.value || "10")));
+  } else {
+    pid = (document.getElementById("project_id")?.value || "").trim();
+    paperLimit = Math.max(1, Math.min(50, parseInt(document.getElementById("paper_limit")?.value || "10")));
+  }
 
   addMessage("user", text);
-  sendBtn.disabled = true;
-  input.value = "";
+  const sendButton = mod === "literature" ? document.getElementById("literature-send") : sendBtn;
+  sendButton.disabled = true;
+  textInput.value = "";
 
   // Show appropriate indicator based on mode
   let loadingIndicator = null;
@@ -594,9 +639,11 @@ async function sendMessage() {
       hideTypingIndicator(typingIndicator);
     }
     addMessage("assistant", `Error: ${error.message}`);
+  } finally {
+    const sendButton = mod === "literature" ? document.getElementById("literature-send") : sendBtn;
+    sendButton.disabled = false;
+    textInput.focus();
   }
-  
-  sendBtn.disabled = false;
 }
 
 
@@ -625,8 +672,6 @@ document.querySelectorAll('input[name="mod"]').forEach(r => {
 sendBtn.addEventListener("click", sendMessage);
 exportBtn.addEventListener("click", exportChatHistory);
 helpBtn.addEventListener("click", showKeyboardShortcuts);
-themeBtn.addEventListener("click", toggleTheme);
-
 // Keyboard event listeners
 input.addEventListener("keydown", (e) => { 
   if (e.key === "Enter" && !e.shiftKey) {
@@ -645,6 +690,117 @@ input.addEventListener("focus", () => {
 input.addEventListener("blur", () => {
   input.parentElement.classList.remove("focused");
 });
+
+// Literature Review mode input handlers
+const literatureInput = document.getElementById("literature-input");
+const literatureSendBtn = document.getElementById("literature-send");
+if (literatureInput && literatureSendBtn) {
+  literatureSendBtn.addEventListener("click", sendMessage);
+  literatureInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+  literatureInput.addEventListener("focus", () => {
+    literatureInput.parentElement.classList.add("focused");
+  });
+  literatureInput.addEventListener("blur", () => {
+    literatureInput.parentElement.classList.remove("focused");
+  });
+}
+
+// Literature Review mode button handlers
+function updateLiteratureButtons() {
+  const projectIdInput = document.getElementById("literature-project-id");
+  const viewPapersBtn = document.getElementById("view-project-papers");
+  const viewPicoBtn = document.getElementById("view-project-pico");
+  
+  if (!projectIdInput) return;
+  
+  const projectName = projectIdInput.value?.trim();
+  if (projectName && projectName !== "default") {
+    getOrCreateProject(projectName).then(projectId => {
+      // Show view papers button if project has papers
+      fetch(`/api/projects/${projectId}/screening/stats`)
+        .then(res => res.json())
+        .then(stats => {
+          if (viewPapersBtn) {
+            viewPapersBtn.style.display = (stats.n_total > 0) ? 'inline-block' : 'none';
+          }
+        })
+        .catch(() => {
+          if (viewPapersBtn) viewPapersBtn.style.display = 'none';
+        });
+      
+      // Show view PICO button if PICO exists
+      fetch(`/api/projects/${projectId}/pico`)
+        .then(res => {
+          if (viewPicoBtn) {
+            viewPicoBtn.style.display = res.ok ? 'inline-block' : 'none';
+          }
+        })
+        .catch(() => {
+          if (viewPicoBtn) viewPicoBtn.style.display = 'none';
+        });
+    }).catch(() => {
+      if (viewPapersBtn) viewPapersBtn.style.display = 'none';
+      if (viewPicoBtn) viewPicoBtn.style.display = 'none';
+    });
+  } else {
+    if (viewPapersBtn) viewPapersBtn.style.display = 'none';
+    if (viewPicoBtn) viewPicoBtn.style.display = 'none';
+  }
+}
+
+// Initialize literature button handlers
+const viewProjectPapersBtn = document.getElementById("view-project-papers");
+const viewProjectPicoBtn = document.getElementById("view-project-pico");
+if (viewProjectPapersBtn) {
+  viewProjectPapersBtn.addEventListener('click', async () => {
+    const projectName = document.getElementById("literature-project-id")?.value?.trim();
+    if (projectName) {
+      try {
+        const projectId = await getOrCreateProject(projectName);
+        // Switch to screening mode to view papers
+        document.querySelector('input[name="mod"][value="screening"]').checked = true;
+        updateInputSection();
+        document.getElementById("screening-project-id").value = projectName;
+        // Trigger view results
+        const viewResultsBtn = document.getElementById("view-results-header-button");
+        if (viewResultsBtn && viewResultsBtn.style.display !== 'none') {
+          viewResultsBtn.click();
+        }
+      } catch (error) {
+        showNotification(`Error: ${error.message}`, 'error');
+      }
+    }
+  });
+}
+
+if (viewProjectPicoBtn) {
+  viewProjectPicoBtn.addEventListener('click', async () => {
+    const projectName = document.getElementById("literature-project-id")?.value?.trim();
+    if (projectName) {
+      try {
+        const projectId = await getOrCreateProject(projectName);
+        // Switch to PICO mode
+        document.querySelector('input[name="mod"][value="pico"]').checked = true;
+        updateInputSection();
+        document.getElementById("pico-project-id").value = projectName;
+      } catch (error) {
+        showNotification(`Error: ${error.message}`, 'error');
+      }
+    }
+  });
+}
+
+// Update literature buttons when project input changes
+const literatureProjectInput = document.getElementById("literature-project-id");
+if (literatureProjectInput) {
+  literatureProjectInput.addEventListener('change', updateLiteratureButtons);
+  literatureProjectInput.addEventListener('blur', updateLiteratureButtons);
+}
 
 // Refresh sidebar when project input changes
 const projectInput = document.getElementById('project_id');
@@ -698,8 +854,18 @@ function renderSidebarProjects(projects) {
     return;
   }
 
-  // Get current project name
-  const currentProject = document.getElementById('project_id')?.value?.trim() || '';
+  // Get current project name (check the appropriate input based on current mode)
+  const mod = document.querySelector('input[name="mod"]:checked')?.value;
+  let currentProject = '';
+  if (mod === 'literature') {
+    currentProject = document.getElementById('literature-project-id')?.value?.trim() || '';
+  } else if (mod === 'pico') {
+    currentProject = document.getElementById('pico-project-id')?.value?.trim() || '';
+  } else if (mod === 'screening') {
+    currentProject = document.getElementById('screening-project-id')?.value?.trim() || '';
+  } else {
+    currentProject = document.getElementById('project_id')?.value?.trim() || '';
+  }
 
   sidebarProjects.innerHTML = projects.map(project => {
     const isActive = project.name === currentProject;
@@ -735,9 +901,11 @@ function renderSidebarProjects(projects) {
 // Load a project (switch to project context and start fresh conversation)
 async function loadProject(projectId, projectName) {
   try {
-    // Set the project name in the input field
+    // Set the project name in ALL input fields (for all modes)
     document.getElementById('project_id').value = projectName;
     document.getElementById('pico-project-id').value = projectName;
+    document.getElementById('literature-project-id').value = projectName;
+    document.getElementById('screening-project-id').value = projectName;
     
     // Always load PICO data if available (regardless of current mode)
     await loadPicoData(projectId);
@@ -748,6 +916,9 @@ async function loadProject(projectId, projectName) {
     // Reset conversation ID to start fresh
     conversationId = null;
     
+    // Refresh sidebar FIRST to show the updated project immediately
+    await loadSidebarProjects();
+    
     // Start a new conversation for this project
     await startConversation();
     
@@ -755,10 +926,8 @@ async function loadProject(projectId, projectName) {
     convMeta.textContent = `Project: ${projectName} | New Conversation`;
     
     // Show project loaded message
-    addMessage("assistant", `📁 **Switched to Project: ${projectName}**\n\nYou can now ask questions about the papers in this project using RAG mode, or search for new literature using Literature Review mode.`, "rag");
-    
-    // Refresh sidebar to show updated state
-    loadSidebarProjects();
+    const mod = document.querySelector('input[name="mod"]:checked').value;
+    addMessage("assistant", `📁 **Switched to Project: ${projectName}**\n\nYou can now ask questions about the papers in this project using RAG mode, or search for new literature using Literature Review mode.`, mod);
     
   } catch (error) {
     console.error('Error loading project:', error);
@@ -897,80 +1066,157 @@ function initSettings() {
   const settingsClose = document.getElementById("settings-close");
   const cancelSettings = document.getElementById("cancel-settings");
   const saveSettings = document.getElementById("save-settings");
-  const testApiKey = document.getElementById("test-api-key");
-  const openaiKeyInput = document.getElementById("openai-key");
-  const toggleApiKey = document.getElementById("toggle-api-key");
-  const additionalKeyInput = document.getElementById("additional-key");
-  const toggleAdditionalKey = document.getElementById("toggle-additional-key");
+  
+  // Category navigation
+  const categoryButtons = document.querySelectorAll('.settings-category');
+  const categoryContents = document.querySelectorAll('.settings-category-content');
+  
+  // Profile/Azure settings
+  const testAzureConfig = document.getElementById("test-azure-config");
+  const azureEndpointInput = document.getElementById("azure-endpoint");
+  const azureOpenAIDeploymentInput = document.getElementById("azure-openai-deployment");
+  const azureEmbeddingDeploymentInput = document.getElementById("azure-embedding-deployment");
+  const azureAgentNameInput = document.getElementById("azure-agent-name");
+  const azureTenantIdInput = document.getElementById("azure-tenant-id");
+  const azureClientIdInput = document.getElementById("azure-client-id");
+  const azureClientSecretInput = document.getElementById("azure-client-secret");
+  const toggleAzureSecret = document.getElementById("toggle-azure-secret");
+  const azureStatus = document.getElementById("azure-status");
+  
+  // Appearance settings
+  const themeSelect = document.getElementById("theme-select");
+  
+  // Application settings
   const defaultPapersInput = document.getElementById("default-papers");
   const defaultProjectInput = document.getElementById("default-project");
-  const apiStatus = document.getElementById("api-status");
 
+  // Category switching
+  if (categoryButtons.length > 0) {
+    categoryButtons.forEach(button => {
+      button.addEventListener('click', (e) => {
+        e.preventDefault();
+        const category = button.getAttribute('data-category');
+        if (!category) return;
+        
+        // Update active state
+        categoryButtons.forEach(btn => btn.classList.remove('active'));
+        button.classList.add('active');
+        
+        // Show/hide content
+        categoryContents.forEach(content => content.classList.remove('active'));
+        const targetContent = document.getElementById(`${category}-settings`);
+        if (targetContent) {
+          targetContent.classList.add('active');
+        }
+      });
+    });
+  }
+  
   // Load saved settings
   function loadSettings() {
-    const savedKey = localStorage.getItem('openai_api_key');
-    const savedAdditionalKey = localStorage.getItem('additional_api_key');
+    // Load Azure settings from localStorage
+    const azureEndpoint = localStorage.getItem('azure_endpoint');
+    const azureOpenAIDeployment = localStorage.getItem('azure_openai_deployment');
+    const azureEmbeddingDeployment = localStorage.getItem('azure_embedding_deployment');
+    const azureAgentName = localStorage.getItem('azure_agent_name');
+    const azureTenantId = localStorage.getItem('azure_tenant_id');
+    const azureClientId = localStorage.getItem('azure_client_id');
+    const azureClientSecret = localStorage.getItem('azure_client_secret');
+    
+    if (azureEndpoint) azureEndpointInput.value = azureEndpoint;
+    if (azureOpenAIDeployment) azureOpenAIDeploymentInput.value = azureOpenAIDeployment;
+    if (azureEmbeddingDeployment) azureEmbeddingDeploymentInput.value = azureEmbeddingDeployment;
+    if (azureAgentName) azureAgentNameInput.value = azureAgentName;
+    if (azureTenantId) azureTenantIdInput.value = azureTenantId;
+    if (azureClientId) azureClientIdInput.value = azureClientId;
+    if (azureClientSecret) azureClientSecretInput.value = azureClientSecret;
+    
+    // Load theme
+    if (themeSelect) {
+      const savedTheme = localStorage.getItem('ai4sr-theme') || 'light';
+      themeSelect.value = savedTheme;
+    }
+    
+    // Load application settings
     const savedPapers = localStorage.getItem('default_papers');
     const savedProject = localStorage.getItem('default_project');
     
-    if (savedKey) openaiKeyInput.value = savedKey;
-    if (savedAdditionalKey) additionalKeyInput.value = savedAdditionalKey;
     if (savedPapers) defaultPapersInput.value = savedPapers;
     if (savedProject) defaultProjectInput.value = savedProject;
   }
 
   // Save settings
   function saveSettingsToStorage() {
-    const apiKey = openaiKeyInput.value.trim();
-    const additionalKey = additionalKeyInput.value.trim();
+    // Save Azure settings to localStorage
+    const azureEndpoint = azureEndpointInput.value.trim();
+    const azureOpenAIDeployment = azureOpenAIDeploymentInput.value.trim();
+    const azureEmbeddingDeployment = azureEmbeddingDeploymentInput.value.trim();
+    const azureAgentName = azureAgentNameInput.value.trim();
+    const azureTenantId = azureTenantIdInput.value.trim();
+    const azureClientId = azureClientIdInput.value.trim();
+    const azureClientSecret = azureClientSecretInput.value.trim();
+    
+    if (azureEndpoint) localStorage.setItem('azure_endpoint', azureEndpoint);
+    else localStorage.removeItem('azure_endpoint');
+    if (azureOpenAIDeployment) localStorage.setItem('azure_openai_deployment', azureOpenAIDeployment);
+    else localStorage.removeItem('azure_openai_deployment');
+    if (azureEmbeddingDeployment) localStorage.setItem('azure_embedding_deployment', azureEmbeddingDeployment);
+    else localStorage.removeItem('azure_embedding_deployment');
+    if (azureAgentName) localStorage.setItem('azure_agent_name', azureAgentName);
+    else localStorage.removeItem('azure_agent_name');
+    if (azureTenantId) localStorage.setItem('azure_tenant_id', azureTenantId);
+    else localStorage.removeItem('azure_tenant_id');
+    if (azureClientId) localStorage.setItem('azure_client_id', azureClientId);
+    else localStorage.removeItem('azure_client_id');
+    if (azureClientSecret) localStorage.setItem('azure_client_secret', azureClientSecret);
+    else localStorage.removeItem('azure_client_secret');
+    
+    // Save theme
+    if (themeSelect) {
+      const theme = themeSelect.value;
+      localStorage.setItem('ai4sr-theme', theme);
+      setTheme(theme);
+    }
+    
+    // Save application settings
     const papers = defaultPapersInput.value;
     const project = defaultProjectInput.value.trim();
     
-    if (apiKey) localStorage.setItem('openai_api_key', apiKey);
-    else localStorage.removeItem('openai_api_key'); // Remove if empty
-    if (additionalKey) localStorage.setItem('additional_api_key', additionalKey);
-    else localStorage.removeItem('additional_api_key'); // Remove if empty
     if (papers) localStorage.setItem('default_papers', papers);
     if (project) localStorage.setItem('default_project', project);
     
     // Update UI with saved values
-    if (papers) document.getElementById("papers").value = papers;
-    if (project) document.getElementById("project").value = project;
+    if (papers) {
+      const paperLimitInput = document.getElementById("paper_limit");
+      if (paperLimitInput) paperLimitInput.value = papers;
+    }
   }
 
-  // Test API key
-  async function testApiKeyFunction() {
-    const apiKey = openaiKeyInput.value.trim();
-    if (!apiKey) {
-      apiStatus.textContent = "Please enter an API key";
-      apiStatus.className = "api-status error";
-      return;
-    }
-
-    apiStatus.textContent = "Testing...";
-    apiStatus.className = "api-status";
+  // Test Azure configuration
+  async function testAzureConfigFunction() {
+    azureStatus.textContent = "Testing...";
+    azureStatus.className = "api-status";
 
     try {
-      const response = await fetch('/api/test-openai', {
+      const response = await fetch('/api/test-azure-config', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ api_key: apiKey })
+        }
       });
 
       const result = await response.json();
       
       if (response.ok && result.success) {
-        apiStatus.textContent = "✓ API key is valid";
-        apiStatus.className = "api-status success";
+        azureStatus.textContent = "✓ Azure configuration is valid";
+        azureStatus.className = "api-status success";
       } else {
-        apiStatus.textContent = "✗ API key is invalid";
-        apiStatus.className = "api-status error";
+        azureStatus.textContent = "✗ Azure configuration error: " + (result.error || "Unknown error");
+        azureStatus.className = "api-status error";
       }
     } catch (error) {
-      apiStatus.textContent = "✗ Test failed";
-      apiStatus.className = "api-status error";
+      azureStatus.textContent = "✗ Test failed: " + error.message;
+      azureStatus.className = "api-status error";
     }
   }
 
@@ -994,33 +1240,23 @@ function initSettings() {
     showNotification('Settings saved successfully!', 'success');
   });
 
-  testApiKey.addEventListener('click', testApiKeyFunction);
+  if (testAzureConfig) {
+    testAzureConfig.addEventListener('click', testAzureConfigFunction);
+  }
 
-      // Toggle API key visibility
-      toggleApiKey.addEventListener('click', () => {
-        if (openaiKeyInput.type === 'password') {
-          openaiKeyInput.type = 'text';
-          toggleApiKey.textContent = '🙈';
-          toggleApiKey.title = 'Hide API Key';
-        } else {
-          openaiKeyInput.type = 'password';
-          toggleApiKey.textContent = '👁️';
-          toggleApiKey.title = 'Show API Key';
-        }
-      });
-
-      // Toggle additional key visibility
-      toggleAdditionalKey.addEventListener('click', () => {
-        if (additionalKeyInput.type === 'password') {
-          additionalKeyInput.type = 'text';
-          toggleAdditionalKey.textContent = '🙈';
-          toggleAdditionalKey.title = 'Hide Additional Key';
-        } else {
-          additionalKeyInput.type = 'password';
-          toggleAdditionalKey.textContent = '👁️';
-          toggleAdditionalKey.title = 'Show Additional Key';
-        }
-      });
+  if (toggleAzureSecret) {
+    toggleAzureSecret.addEventListener('click', () => {
+      if (azureClientSecretInput.type === 'password') {
+        azureClientSecretInput.type = 'text';
+        toggleAzureSecret.textContent = '🙈';
+        toggleAzureSecret.title = 'Hide Secret';
+      } else {
+        azureClientSecretInput.type = 'password';
+        toggleAzureSecret.textContent = '👁️';
+        toggleAzureSecret.title = 'Show Secret';
+      }
+    });
+  }
 
   // Close modal when clicking outside
   settingsModal.addEventListener('click', (e) => {
@@ -1049,6 +1285,18 @@ function initCreateProject() {
       return;
     }
     
+    // Optimistic UI update: add project to sidebar immediately
+    const tempProject = {
+      id: 'temp-' + Date.now(),
+      name: trimmedName,
+      conversation_count: 0,
+      paper_count: 0,
+      created_at: new Date().toISOString(),
+      last_conversation: null
+    };
+    currentProjects.push(tempProject);
+    renderSidebarProjects(currentProjects);
+    
     try {
       const response = await fetch('/api/projects', {
         method: 'POST',
@@ -1060,16 +1308,41 @@ function initCreateProject() {
         const data = await response.json();
         showNotification(`Project '${trimmedName}' created successfully`, 'success');
         
+        // Replace temp project with real project data
+        const tempIndex = currentProjects.findIndex(p => p.id === tempProject.id);
+        if (tempIndex !== -1) {
+          currentProjects[tempIndex] = {
+            id: data.project_id,
+            name: trimmedName,
+            conversation_count: 0,
+            paper_count: 0,
+            created_at: new Date().toISOString(),
+            last_conversation: null
+          };
+        }
+        renderSidebarProjects(currentProjects);
+        
         // Load the new project
         await loadProject(data.project_id, trimmedName);
-        
-        // Refresh sidebar
-        loadSidebarProjects();
       } else {
+        // Revert optimistic update on error
+        const tempIndex = currentProjects.findIndex(p => p.id === tempProject.id);
+        if (tempIndex !== -1) {
+          currentProjects.splice(tempIndex, 1);
+        }
+        renderSidebarProjects(currentProjects);
+        
         const error = await response.json();
         showNotification(`Failed to create project: ${error.error}`, 'error');
       }
     } catch (error) {
+      // Revert optimistic update on error
+      const tempIndex = currentProjects.findIndex(p => p.id === tempProject.id);
+      if (tempIndex !== -1) {
+        currentProjects.splice(tempIndex, 1);
+      }
+      renderSidebarProjects(currentProjects);
+      
       showNotification(`Error creating project: ${error.message}`, 'error');
     }
   });
@@ -1078,7 +1351,18 @@ function initCreateProject() {
 // Delete project functionality
 function initDeleteProject() {
   deleteProjectBtn.addEventListener('click', async () => {
-    const projectName = document.getElementById("project_id")?.value?.trim();
+    // Get project name from the current mode's input field
+    const mod = document.querySelector('input[name="mod"]:checked')?.value;
+    let projectName = '';
+    if (mod === 'literature') {
+      projectName = document.getElementById("literature-project-id")?.value?.trim() || '';
+    } else if (mod === 'pico') {
+      projectName = document.getElementById("pico-project-id")?.value?.trim() || '';
+    } else if (mod === 'screening') {
+      projectName = document.getElementById("screening-project-id")?.value?.trim() || '';
+    } else {
+      projectName = document.getElementById("project_id")?.value?.trim() || '';
+    }
     
     if (!projectName || projectName === "default") {
       showNotification('No project selected to delete', 'error');
@@ -1102,12 +1386,28 @@ function initDeleteProject() {
 
         if (response.ok) {
           showNotification('Project deleted successfully', 'success');
-          // Reset to default project
+          
+          // Reset ALL project input fields
           conversationId = null;
           document.getElementById("project_id").value = "";
           document.getElementById("pico-project-id").value = "";
-          loadSidebarProjects();
-          startConversation();
+          document.getElementById("screening-project-id").value = "";
+          document.getElementById("literature-project-id").value = "";
+          
+          // Clear chat
+          chat.innerHTML = '';
+          
+          // Hide delete button
+          deleteProjectBtn.style.display = 'none';
+          
+          // Reset conversation metadata
+          convMeta.textContent = '';
+          
+          // Refresh sidebar IMMEDIATELY (await to ensure it completes)
+          await loadSidebarProjects();
+          
+          // Start fresh conversation
+          await startConversation();
         } else {
           const error = await response.json();
           showNotification(`Failed to delete project: ${error.error}`, 'error');

@@ -57,10 +57,6 @@
             <span class="hamburger-icon">☰</span>
             <span class="hamburger-text">Menu</span>
           </button>
-          <button id="theme-toggle" class="theme-button" title="Toggle Dark Mode">
-            <span class="theme-icon">🌙</span>
-            <span class="theme-text">Dark</span>
-          </button>
           <button id="help-shortcuts" class="help-button" title="Keyboard Shortcuts">
             <span class="help-icon">⌨️</span>
             <span class="help-text">Shortcuts</span>
@@ -116,7 +112,7 @@
       <div class="chat-container">
         <div id="chat" class="chat"></div>
         
-        <!-- Standard input section (for literature and RAG modes) -->
+        <!-- Standard input section (for RAG mode) -->
         <div id="standard-input-section" class="input-section">
           <div class="input-controls">
             <div class="control-group">
@@ -136,6 +132,39 @@
                 <span class="send-icon">→</span>
                 <span class="send-text">Send</span>
               </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Literature Review input section (for Literature Review mode) -->
+        <div id="literature-input-section" class="input-section literature-section" style="display: none;">
+          <div class="input-controls">
+            <div class="control-group">
+              <label for="literature-project-id" class="control-label">Project</label>
+              <input id="literature-project-id" type="text" placeholder="Enter project name or ID" class="control-input project-input" />
+            </div>
+            <div class="control-group">
+              <label for="literature-paper-limit" class="control-label">Papers</label>
+              <input id="literature-paper-limit" type="number" value="10" min="1" max="50" class="control-input limit-input" title="Number of papers to fetch" />
+            </div>
+          </div>
+          
+          <div class="literature-workspace">
+            <div class="literature-header">
+              <div class="literature-header-buttons">
+                <button id="view-project-papers" class="literature-button literature-button-secondary" style="display: none;">📄 View Project Papers</button>
+                <button id="view-project-pico" class="literature-button literature-button-secondary" style="display: none;">📋 View PICO</button>
+              </div>
+            </div>
+            
+            <div class="composer">
+              <div class="input-wrapper">
+                <input id="literature-input" type="text" placeholder="Search for papers, ask research questions, or explore literature..." class="message-input" />
+                <button id="literature-send" class="send-button">
+                  <span class="send-icon">→</span>
+                  <span class="send-text">Send</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -302,44 +331,106 @@
 
   <!-- Settings Modal -->
   <div id="settings-modal" class="modal">
-    <div class="modal-content">
+    <div class="modal-content settings-modal-content">
       <div class="modal-header">
         <h2>Settings</h2>
         <button class="modal-close" id="settings-close">&times;</button>
       </div>
-      <div class="modal-body">
-        <div class="settings-section">
-          <h3>API Configuration</h3>
-          <div class="form-group">
-            <label for="openai-key" class="api-key-label">🔑 OpenAI API Key (Required):</label>
-            <div class="input-with-toggle">
-              <input type="password" id="openai-key" placeholder="sk-proj-..." autocomplete="off" />
-              <button type="button" id="toggle-api-key" class="toggle-visibility" title="Show/Hide API Key">👁️</button>
-            </div>
-            <small>Your API key is stored locally in your browser and never sent to our servers.</small>
-          </div>
-          <div class="form-group">
-            <label for="additional-key" class="api-key-label">🔧 Additional API Key (Optional):</label>
-            <div class="input-with-toggle">
-              <input type="password" id="additional-key" placeholder="Enter additional API key..." autocomplete="off" />
-              <button type="button" id="toggle-additional-key" class="toggle-visibility" title="Show/Hide Additional Key">👁️</button>
-            </div>
-            <small>Optional API key for additional services or backup authentication.</small>
-          </div>
-          <div class="form-group">
-            <button id="test-api-key" class="test-button">Test API Key</button>
-            <span id="api-status" class="api-status"></span>
-          </div>
+      <div class="settings-container">
+        <div class="settings-sidebar">
+          <button class="settings-category active" data-category="profile">Profile</button>
+          <button class="settings-category" data-category="appearance">Appearance</button>
+          <button class="settings-category" data-category="application">Application</button>
+          <button class="settings-category" data-category="advanced">Advanced</button>
         </div>
-        <div class="settings-section">
-          <h3>Application Settings</h3>
-          <div class="form-group">
-            <label for="default-papers">Default Paper Limit:</label>
-            <input type="number" id="default-papers" value="10" min="1" max="50" />
+        <div class="settings-content">
+          <!-- Profile Settings -->
+          <div class="settings-category-content active" id="profile-settings">
+            <div class="settings-section">
+              <h3>Azure Configuration</h3>
+              <div class="form-group">
+                <label for="azure-endpoint">Azure AI Project Endpoint:</label>
+                <input type="text" id="azure-endpoint" placeholder="https://..." autocomplete="off" />
+                <small>Azure AI Project endpoint URL</small>
+              </div>
+              <div class="form-group">
+                <label for="azure-openai-deployment">Azure OpenAI Deployment Name:</label>
+                <input type="text" id="azure-openai-deployment" placeholder="gpt-4o-mini" autocomplete="off" />
+                <small>Name of the OpenAI deployment in Azure</small>
+              </div>
+              <div class="form-group">
+                <label for="azure-embedding-deployment">Azure OpenAI Embedding Deployment Name:</label>
+                <input type="text" id="azure-embedding-deployment" placeholder="text-embedding-3-small" autocomplete="off" />
+                <small>Name of the embedding deployment in Azure</small>
+              </div>
+              <div class="form-group">
+                <label for="azure-agent-name">Azure Agent Name:</label>
+                <input type="text" id="azure-agent-name" placeholder="ai4sr-agent" autocomplete="off" />
+                <small>Default agent name for Azure AI Projects</small>
+              </div>
+              <div class="form-group">
+                <label for="azure-tenant-id">Microsoft Tenant ID:</label>
+                <input type="text" id="azure-tenant-id" placeholder="..." autocomplete="off" />
+                <small>Azure AD tenant ID for authentication</small>
+              </div>
+              <div class="form-group">
+                <label for="azure-client-id">Microsoft Client ID:</label>
+                <input type="text" id="azure-client-id" placeholder="..." autocomplete="off" />
+                <small>Azure AD application (client) ID</small>
+              </div>
+              <div class="form-group">
+                <label for="azure-client-secret" class="api-key-label">Microsoft Client Secret:</label>
+                <div class="input-with-toggle">
+                  <input type="password" id="azure-client-secret" placeholder="..." autocomplete="off" />
+                  <button type="button" id="toggle-azure-secret" class="toggle-visibility" title="Show/Hide Secret">👁️</button>
+                </div>
+                <small>Azure AD client secret (stored locally in browser)</small>
+              </div>
+              <div class="form-group">
+                <button id="test-azure-config" class="test-button">Test Azure Configuration</button>
+                <span id="azure-status" class="api-status"></span>
+              </div>
+            </div>
           </div>
-          <div class="form-group">
-            <label for="default-project">Default Project Name:</label>
-            <input type="text" id="default-project" placeholder="Enter default project name" />
+          
+          <!-- Appearance Settings -->
+          <div class="settings-category-content" id="appearance-settings">
+            <div class="settings-section">
+              <h3>Appearance</h3>
+              <div class="form-group">
+                <label for="theme-select">Theme:</label>
+                <select id="theme-select">
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                </select>
+                <small>Choose your preferred theme</small>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Application Settings -->
+          <div class="settings-category-content" id="application-settings">
+            <div class="settings-section">
+              <h3>Application Settings</h3>
+              <div class="form-group">
+                <label for="default-papers">Default Paper Limit:</label>
+                <input type="number" id="default-papers" value="10" min="1" max="50" />
+                <small>Default number of papers to fetch in literature review</small>
+              </div>
+              <div class="form-group">
+                <label for="default-project">Default Project Name:</label>
+                <input type="text" id="default-project" placeholder="Enter default project name" />
+                <small>Default project name for new conversations</small>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Advanced Settings -->
+          <div class="settings-category-content" id="advanced-settings">
+            <div class="settings-section">
+              <h3>Advanced</h3>
+              <p>Advanced settings will be available here in the future.</p>
+            </div>
           </div>
         </div>
       </div>
