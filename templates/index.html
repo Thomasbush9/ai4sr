@@ -52,6 +52,17 @@
           </div>
         </div>
         
+        <div class="header-controls" id="header-controls" style="display: none;">
+          <div class="header-control-group">
+            <label for="header-project-id" class="header-control-label">Project</label>
+            <input id="header-project-id" type="text" placeholder="Project name" class="header-control-input" />
+          </div>
+          <div class="header-control-group">
+            <label for="header-paper-limit" class="header-control-label">Papers</label>
+            <input id="header-paper-limit" type="number" value="10" min="1" max="50" class="header-control-input header-limit-input" />
+          </div>
+        </div>
+        
         <div class="session-info">
           <button id="sidebar-toggle-header" class="sidebar-toggle-header" title="Toggle Sidebar">
             <span class="hamburger-icon">☰</span>
@@ -110,22 +121,17 @@
       </div>
 
       <div class="chat-container">
-        <div id="chat" class="chat"></div>
-        
-        <!-- Standard input section (for RAG mode) -->
-        <div id="standard-input-section" class="input-section">
-          <div class="input-controls">
-            <div class="control-group">
-              <label for="project_id" class="control-label">Project</label>
-              <input id="project_id" type="text" placeholder="Enter project name or ID" class="control-input project-input" />
-            </div>
-            <div class="control-group">
-              <label for="paper_limit" class="control-label">Papers</label>
-              <input id="paper_limit" type="number" value="10" min="1" max="50" class="control-input limit-input" title="Number of papers to fetch" />
-            </div>
+        <div id="chat" class="chat">
+          <div id="chat-messages" class="chat-messages"></div>
+          
+          <!-- Literature Review header buttons (inside chat) -->
+          <div id="literature-header-buttons" class="literature-header-buttons" style="display: none;">
+            <button id="view-project-papers" class="literature-button literature-button-secondary" style="display: none;">📄 View Project Papers</button>
+            <button id="view-project-pico" class="literature-button literature-button-secondary" style="display: none;">📋 View PICO</button>
           </div>
           
-          <div class="composer">
+          <!-- Composer for RAG mode -->
+          <div id="rag-composer" class="chat-composer">
             <div class="input-wrapper">
               <input id="input" type="text" placeholder="Ask about literature, research questions, or search for papers..." class="message-input" />
               <button id="send" class="send-button">
@@ -134,40 +140,24 @@
               </button>
             </div>
           </div>
-        </div>
-
-        <!-- Literature Review input section (for Literature Review mode) -->
-        <div id="literature-input-section" class="input-section literature-section" style="display: none;">
-          <div class="input-controls">
-            <div class="control-group">
-              <label for="literature-project-id" class="control-label">Project</label>
-              <input id="literature-project-id" type="text" placeholder="Enter project name or ID" class="control-input project-input" />
-            </div>
-            <div class="control-group">
-              <label for="literature-paper-limit" class="control-label">Papers</label>
-              <input id="literature-paper-limit" type="number" value="10" min="1" max="50" class="control-input limit-input" title="Number of papers to fetch" />
-            </div>
-          </div>
           
-          <div class="literature-workspace">
-            <div class="literature-header">
-              <div class="literature-header-buttons">
-                <button id="view-project-papers" class="literature-button literature-button-secondary" style="display: none;">📄 View Project Papers</button>
-                <button id="view-project-pico" class="literature-button literature-button-secondary" style="display: none;">📋 View PICO</button>
-              </div>
-            </div>
-            
-            <div class="composer">
-              <div class="input-wrapper">
-                <input id="literature-input" type="text" placeholder="Search for papers, ask research questions, or explore literature..." class="message-input" />
-                <button id="literature-send" class="send-button">
-                  <span class="send-icon">→</span>
-                  <span class="send-text">Send</span>
-                </button>
-              </div>
+          <!-- Composer for Literature Review mode -->
+          <div id="literature-composer" class="chat-composer" style="display: none;">
+            <div class="input-wrapper">
+              <input id="literature-input" type="text" placeholder="Search for papers, ask research questions, or explore literature..." class="message-input" />
+              <button id="literature-send" class="send-button">
+                <span class="send-icon">→</span>
+                <span class="send-text">Send</span>
+              </button>
             </div>
           </div>
         </div>
+        
+        <!-- Keep hidden inputs for backward compatibility -->
+        <input id="project_id" type="hidden" />
+        <input id="paper_limit" type="hidden" />
+        <input id="literature-project-id" type="hidden" />
+        <input id="literature-paper-limit" type="hidden" />
 
         <!-- PICO input section (for PICO mode) -->
         <div id="pico-input-section" class="input-section pico-section" style="display: none;">
@@ -422,14 +412,66 @@
                 <input type="text" id="default-project" placeholder="Enter default project name" />
                 <small>Default project name for new conversations</small>
               </div>
+              
+              <h3 style="margin-top: 2rem;">Screening Configuration</h3>
+              <div class="form-group">
+                <label for="screening-batch-size">Screening Batch Size:</label>
+                <input type="number" id="screening-batch-size" value="10" min="1" max="100" />
+                <small>Number of papers to show per batch during screening (1-100)</small>
+              </div>
+              <div class="form-group">
+                <label for="screening-strategy">Screening Strategy:</label>
+                <select id="screening-strategy">
+                  <option value="relevance">Relevance</option>
+                  <option value="uncertainty">Uncertainty</option>
+                </select>
+                <small>Strategy for selecting papers: relevance (most likely to include first) or uncertainty (least certain first)</small>
+              </div>
+              <div class="form-group">
+                <label for="screening-classifier">Classifier Type:</label>
+                <select id="screening-classifier">
+                  <option value="logistic">Logistic Regression</option>
+                  <option value="svm">SVM</option>
+                  <option value="random_forest" selected>Random Forest</option>
+                  <option value="naive_bayes">Naive Bayes</option>
+                </select>
+                <small>Machine learning classifier for active learning</small>
+              </div>
+              <div class="form-group">
+                <label for="cold-start-batch-size">Cold Start Batch Size:</label>
+                <input type="number" id="cold-start-batch-size" value="10" min="1" max="50" />
+                <small>Number of papers to label initially using cold-start agent (1-50)</small>
+              </div>
             </div>
           </div>
           
           <!-- Advanced Settings -->
           <div class="settings-category-content" id="advanced-settings">
             <div class="settings-section">
-              <h3>Advanced</h3>
-              <p>Advanced settings will be available here in the future.</p>
+              <h3>Auto-labeling Configuration</h3>
+              <div class="form-group">
+                <label for="auto-label-include-threshold">Include Threshold:</label>
+                <input type="number" id="auto-label-include-threshold" value="0.8" min="0" max="1" step="0.1" />
+                <small>Probability threshold above which papers are auto-labeled as INCLUDE (0.0-1.0)</small>
+              </div>
+              <div class="form-group">
+                <label for="auto-label-exclude-threshold">Exclude Threshold:</label>
+                <input type="number" id="auto-label-exclude-threshold" value="0.2" min="0" max="1" step="0.1" />
+                <small>Probability threshold below which papers are auto-labeled as EXCLUDE (0.0-1.0)</small>
+              </div>
+              
+              <h3 style="margin-top: 2rem;">Export Preferences</h3>
+              <div class="form-group">
+                <label for="default-export-format">Default Export Format:</label>
+                <select id="default-export-format">
+                  <option value="json" selected>JSON</option>
+                  <option value="csv">CSV</option>
+                  <option value="bibtex">BibTeX</option>
+                  <option value="ris">RIS</option>
+                  <option value="pdf">PDF</option>
+                </select>
+                <small>Default format for exporting included papers</small>
+              </div>
             </div>
           </div>
         </div>

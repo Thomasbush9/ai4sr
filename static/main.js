@@ -1,9 +1,13 @@
 let conversationId = null;
 
 const chat = document.getElementById("chat");
+const chatMessages = document.getElementById("chat-messages");
 const input = document.getElementById("input");
 const sendBtn = document.getElementById("send");
 const convMeta = document.getElementById("conv-meta");
+const headerControls = document.getElementById("header-controls");
+const headerProjectInput = document.getElementById("header-project-id");
+const headerPaperLimitInput = document.getElementById("header-paper-limit");
 const exportBtn = document.getElementById("export-chat");
 const helpBtn = document.getElementById("help-shortcuts");
 const settingsBtn = document.getElementById("settings-button");
@@ -67,8 +71,14 @@ function addMessage(role, text, mode = null) {
     </div>
   `;
   
-  chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  chatMessages.appendChild(el);
+  // Smooth scroll to bottom
+  setTimeout(() => {
+    chatMessages.scrollTo({
+      top: chatMessages.scrollHeight,
+      behavior: 'smooth'
+    });
+  }, 50);
   
   // Add fade-in animation
   el.style.opacity = '0';
@@ -198,8 +208,14 @@ function addPaperTable(papers) {
   `;
   
   el.innerHTML = tableHTML;
-  chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  chatMessages.appendChild(el);
+  // Smooth scroll to bottom
+  setTimeout(() => {
+    chatMessages.scrollTo({
+      top: chatMessages.scrollHeight,
+      behavior: 'smooth'
+    });
+  }, 50);
   
   // Add fade-in animation
   el.style.opacity = '0';
@@ -250,8 +266,8 @@ function showLoadingIndicator() {
     <div class="loading-spinner"></div>
     <span id="loading-text">Starting literature review...</span>
   `;
-  chat.appendChild(loadingEl);
-  chat.scrollTop = chat.scrollHeight;
+  chatMessages.appendChild(loadingEl);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
   return loadingEl;
 }
 
@@ -311,8 +327,8 @@ function showTypingIndicator() {
       </div>
     </div>
   `;
-  chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  chatMessages.appendChild(el);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
   return el;
 }
 
@@ -471,32 +487,41 @@ async function startConversation() {
 // Show/hide input sections based on mode
 function updateInputSection() {
   const mod = document.querySelector('input[name="mod"]:checked').value;
-  const standardSection = document.getElementById("standard-input-section");
-  const literatureSection = document.getElementById("literature-input-section");
+  const ragComposer = document.getElementById("rag-composer");
+  const literatureComposer = document.getElementById("literature-composer");
+  const literatureHeaderButtons = document.getElementById("literature-header-buttons");
   const picoSection = document.getElementById("pico-input-section");
   const screeningSection = document.getElementById("screening-input-section");
   
   if (mod === "pico") {
-    standardSection.style.display = "none";
-    literatureSection.style.display = "none";
-    picoSection.style.display = "block";
-    screeningSection.style.display = "none";
+    // Hide chat composers, show PICO section
+    if (ragComposer) ragComposer.style.display = "none";
+    if (literatureComposer) literatureComposer.style.display = "none";
+    if (literatureHeaderButtons) literatureHeaderButtons.style.display = "none";
+    if (headerControls) headerControls.style.display = "none";
+    if (picoSection) picoSection.style.display = "block";
+    if (screeningSection) screeningSection.style.display = "none";
     // Sync project ID
-    const projectId = document.getElementById("project_id")?.value || 
+    const projectId = headerProjectInput?.value || 
+                     document.getElementById("project_id")?.value || 
                      document.getElementById("literature-project-id")?.value || "";
-    if (projectId) {
+    if (projectId && document.getElementById("pico-project-id")) {
       document.getElementById("pico-project-id").value = projectId;
     }
   } else if (mod === "screening") {
-    standardSection.style.display = "none";
-    literatureSection.style.display = "none";
-    picoSection.style.display = "none";
-    screeningSection.style.display = "block";
+    // Hide chat composers, show screening section
+    if (ragComposer) ragComposer.style.display = "none";
+    if (literatureComposer) literatureComposer.style.display = "none";
+    if (literatureHeaderButtons) literatureHeaderButtons.style.display = "none";
+    if (headerControls) headerControls.style.display = "none";
+    if (picoSection) picoSection.style.display = "none";
+    if (screeningSection) screeningSection.style.display = "block";
     // Sync project ID
-    const projectId = document.getElementById("project_id")?.value || 
+    const projectId = headerProjectInput?.value || 
+                     document.getElementById("project_id")?.value || 
                      document.getElementById("pico-project-id")?.value ||
                      document.getElementById("literature-project-id")?.value || "";
-    if (projectId) {
+    if (projectId && document.getElementById("screening-project-id")) {
       document.getElementById("screening-project-id").value = projectId;
       // Check button visibility if project exists
       getOrCreateProject(projectId).then(id => {
@@ -507,40 +532,53 @@ function updateInputSection() {
     // Initialize screening mode
     initScreeningMode();
   } else if (mod === "literature") {
-    standardSection.style.display = "none";
-    literatureSection.style.display = "block";
-    picoSection.style.display = "none";
-    screeningSection.style.display = "none";
-    // Sync project ID
-    const projectId = document.getElementById("project_id")?.value || 
+    // Show literature composer and header controls
+    if (ragComposer) ragComposer.style.display = "none";
+    if (literatureComposer) literatureComposer.style.display = "block";
+    if (literatureHeaderButtons) literatureHeaderButtons.style.display = "flex";
+    if (headerControls) headerControls.style.display = "flex";
+    if (picoSection) picoSection.style.display = "none";
+    if (screeningSection) screeningSection.style.display = "none";
+    // Sync project ID and paper limit
+    const projectId = headerProjectInput?.value || 
+                     document.getElementById("project_id")?.value || 
                      document.getElementById("pico-project-id")?.value ||
                      document.getElementById("screening-project-id")?.value || "";
     if (projectId) {
-      document.getElementById("literature-project-id").value = projectId;
+      if (headerProjectInput) headerProjectInput.value = projectId;
+      if (document.getElementById("literature-project-id")) {
+        document.getElementById("literature-project-id").value = projectId;
+      }
     }
-    // Sync paper limit
-    const paperLimit = document.getElementById("paper_limit")?.value || "10";
-    document.getElementById("literature-paper-limit").value = paperLimit;
+    const paperLimit = headerPaperLimitInput?.value || 
+                      document.getElementById("paper_limit")?.value || "10";
+    if (headerPaperLimitInput) headerPaperLimitInput.value = paperLimit;
+    if (document.getElementById("literature-paper-limit")) {
+      document.getElementById("literature-paper-limit").value = paperLimit;
+    }
     // Update literature mode button visibility
     updateLiteratureButtons();
   } else {
-    // RAG mode
-    standardSection.style.display = "block";
-    literatureSection.style.display = "none";
-    picoSection.style.display = "none";
-    screeningSection.style.display = "none";
+    // RAG mode - show RAG composer and header controls
+    if (ragComposer) ragComposer.style.display = "block";
+    if (literatureComposer) literatureComposer.style.display = "none";
+    if (literatureHeaderButtons) literatureHeaderButtons.style.display = "none";
+    if (headerControls) headerControls.style.display = "flex";
+    if (picoSection) picoSection.style.display = "none";
+    if (screeningSection) screeningSection.style.display = "none";
     // Sync project ID
     const picoProjectId = document.getElementById("pico-project-id")?.value || "";
     const screeningProjectId = document.getElementById("screening-project-id")?.value || "";
     const literatureProjectId = document.getElementById("literature-project-id")?.value || "";
-    if (picoProjectId) {
-      document.getElementById("project_id").value = picoProjectId;
-    } else if (screeningProjectId) {
-      document.getElementById("project_id").value = screeningProjectId;
-    } else if (literatureProjectId) {
-      document.getElementById("project_id").value = literatureProjectId;
+    const projectId = picoProjectId || screeningProjectId || literatureProjectId || "";
+    if (projectId) {
+      if (headerProjectInput) headerProjectInput.value = projectId;
+      if (document.getElementById("project_id")) {
+        document.getElementById("project_id").value = projectId;
+      }
     }
   }
+  
 }
 
 async function sendMessage() {
@@ -566,11 +604,11 @@ async function sendMessage() {
   // Get project ID and paper limit based on mode
   let pid, paperLimit;
   if (mod === "literature") {
-    pid = (document.getElementById("literature-project-id")?.value || "").trim();
-    paperLimit = Math.max(1, Math.min(50, parseInt(document.getElementById("literature-paper-limit")?.value || "10")));
+    pid = (headerProjectInput?.value || document.getElementById("literature-project-id")?.value || "").trim();
+    paperLimit = Math.max(1, Math.min(50, parseInt(headerPaperLimitInput?.value || document.getElementById("literature-paper-limit")?.value || "10")));
   } else {
-    pid = (document.getElementById("project_id")?.value || "").trim();
-    paperLimit = Math.max(1, Math.min(50, parseInt(document.getElementById("paper_limit")?.value || "10")));
+    pid = (headerProjectInput?.value || document.getElementById("project_id")?.value || "").trim();
+    paperLimit = Math.max(1, Math.min(50, parseInt(headerPaperLimitInput?.value || document.getElementById("paper_limit")?.value || "10")));
   }
 
   addMessage("user", text);
@@ -906,12 +944,14 @@ async function loadProject(projectId, projectName) {
     document.getElementById('pico-project-id').value = projectName;
     document.getElementById('literature-project-id').value = projectName;
     document.getElementById('screening-project-id').value = projectName;
+    // Also set in header controls
+    if (headerProjectInput) headerProjectInput.value = projectName;
     
     // Always load PICO data if available (regardless of current mode)
     await loadPicoData(projectId);
     
     // Clear current chat
-    chat.innerHTML = '';
+    chatMessages.innerHTML = '';
     
     // Reset conversation ID to start fresh
     conversationId = null;
@@ -977,10 +1017,11 @@ async function loadConversation(conversationId, projectName) {
     const messages = await response.json();
     
     // Clear current chat
-    chat.innerHTML = '';
+    chatMessages.innerHTML = '';
     
     // Set the project name in the input
     document.getElementById('project_id').value = projectName;
+    if (headerProjectInput) headerProjectInput.value = projectName;
     
     // Load messages
     messages.forEach(msg => {
@@ -994,7 +1035,12 @@ async function loadConversation(conversationId, projectName) {
     convMeta.textContent = `Project: ${projectName} | Conversation: ${conversationId}`;
     
     // Scroll to bottom
-    chat.scrollTop = chat.scrollHeight;
+    setTimeout(() => {
+      chatMessages.scrollTo({
+        top: chatMessages.scrollHeight,
+        behavior: 'smooth'
+      });
+    }, 50);
     
   } catch (error) {
     console.error('Error loading conversation:', error);
@@ -1089,6 +1135,15 @@ function initSettings() {
   // Application settings
   const defaultPapersInput = document.getElementById("default-papers");
   const defaultProjectInput = document.getElementById("default-project");
+  const screeningBatchSizeInput = document.getElementById("screening-batch-size");
+  const screeningStrategyInput = document.getElementById("screening-strategy");
+  const screeningClassifierInput = document.getElementById("screening-classifier");
+  const coldStartBatchSizeInput = document.getElementById("cold-start-batch-size");
+  
+  // Advanced settings
+  const autoLabelIncludeThresholdInput = document.getElementById("auto-label-include-threshold");
+  const autoLabelExcludeThresholdInput = document.getElementById("auto-label-exclude-threshold");
+  const defaultExportFormatInput = document.getElementById("default-export-format");
 
   // Category switching
   if (categoryButtons.length > 0) {
@@ -1140,9 +1195,34 @@ function initSettings() {
     // Load application settings
     const savedPapers = localStorage.getItem('default_papers');
     const savedProject = localStorage.getItem('default_project');
+    const savedScreeningBatchSize = localStorage.getItem('screening_batch_size');
+    const savedScreeningStrategy = localStorage.getItem('screening_strategy');
+    const savedScreeningClassifier = localStorage.getItem('screening_classifier');
+    const savedColdStartBatchSize = localStorage.getItem('cold_start_batch_size');
     
     if (savedPapers) defaultPapersInput.value = savedPapers;
     if (savedProject) defaultProjectInput.value = savedProject;
+    if (savedScreeningBatchSize) screeningBatchSizeInput.value = savedScreeningBatchSize;
+    if (savedScreeningStrategy) screeningStrategyInput.value = savedScreeningStrategy;
+    if (savedScreeningClassifier) screeningClassifierInput.value = savedScreeningClassifier;
+    if (savedColdStartBatchSize) coldStartBatchSizeInput.value = savedColdStartBatchSize;
+    
+    // Load advanced settings
+    const savedIncludeThreshold = localStorage.getItem('auto_label_include_threshold');
+    const savedExcludeThreshold = localStorage.getItem('auto_label_exclude_threshold');
+    const savedExportFormat = localStorage.getItem('default_export_format');
+    
+    if (savedIncludeThreshold) autoLabelIncludeThresholdInput.value = savedIncludeThreshold;
+    if (savedExcludeThreshold) autoLabelExcludeThresholdInput.value = savedExcludeThreshold;
+    if (savedExportFormat) defaultExportFormatInput.value = savedExportFormat;
+    
+    // Apply default paper limit to input fields
+    if (savedPapers) {
+      const paperLimitInput = document.getElementById("paper_limit");
+      if (paperLimitInput) paperLimitInput.value = savedPapers;
+      const literaturePaperLimitInput = document.getElementById("literature-paper-limit");
+      if (literaturePaperLimitInput) literaturePaperLimitInput.value = savedPapers;
+    }
   }
 
   // Save settings
@@ -1181,14 +1261,45 @@ function initSettings() {
     // Save application settings
     const papers = defaultPapersInput.value;
     const project = defaultProjectInput.value.trim();
+    const screeningBatchSize = Math.max(1, Math.min(100, parseInt(screeningBatchSizeInput.value) || 10));
+    const screeningStrategy = screeningStrategyInput.value;
+    const screeningClassifier = screeningClassifierInput.value;
+    const coldStartBatchSize = Math.max(1, Math.min(50, parseInt(coldStartBatchSizeInput.value) || 10));
     
-    if (papers) localStorage.setItem('default_papers', papers);
+    localStorage.setItem('default_papers', papers || '10');
     if (project) localStorage.setItem('default_project', project);
+    localStorage.setItem('screening_batch_size', screeningBatchSize.toString());
+    localStorage.setItem('screening_strategy', screeningStrategy);
+    localStorage.setItem('screening_classifier', screeningClassifier);
+    localStorage.setItem('cold_start_batch_size', coldStartBatchSize.toString());
+    
+    // Save advanced settings
+    let includeThreshold = parseFloat(autoLabelIncludeThresholdInput.value) || 0.8;
+    let excludeThreshold = parseFloat(autoLabelExcludeThresholdInput.value) || 0.2;
+    
+    // Validate thresholds: 0 <= exclude_threshold < include_threshold <= 1
+    includeThreshold = Math.max(0, Math.min(1, includeThreshold));
+    excludeThreshold = Math.max(0, Math.min(1, excludeThreshold));
+    if (excludeThreshold >= includeThreshold) {
+      excludeThreshold = Math.max(0, includeThreshold - 0.1);
+    }
+    
+    const exportFormat = defaultExportFormatInput.value;
+    
+    localStorage.setItem('auto_label_include_threshold', includeThreshold.toString());
+    localStorage.setItem('auto_label_exclude_threshold', excludeThreshold.toString());
+    localStorage.setItem('default_export_format', exportFormat);
+    
+    // Update input values to reflect validated/clamped values
+    autoLabelIncludeThresholdInput.value = includeThreshold;
+    autoLabelExcludeThresholdInput.value = excludeThreshold;
     
     // Update UI with saved values
     if (papers) {
       const paperLimitInput = document.getElementById("paper_limit");
       if (paperLimitInput) paperLimitInput.value = papers;
+      const literaturePaperLimitInput = document.getElementById("literature-paper-limit");
+      if (literaturePaperLimitInput) literaturePaperLimitInput.value = papers;
     }
   }
 
@@ -1393,9 +1504,10 @@ function initDeleteProject() {
           document.getElementById("pico-project-id").value = "";
           document.getElementById("screening-project-id").value = "";
           document.getElementById("literature-project-id").value = "";
+          if (headerProjectInput) headerProjectInput.value = "";
           
           // Clear chat
-          chat.innerHTML = '';
+          chatMessages.innerHTML = '';
           
           // Hide delete button
           deleteProjectBtn.style.display = 'none';
@@ -2080,7 +2192,20 @@ async function loadScreeningBatch(projectId) {
   try {
     updateScreeningStatus('Fetching next batch...', 'info');
     
-    const response = await fetch(`/api/projects/${projectId}/screening/next?batch_size=10&strategy=relevance&classifier=random_forest`);
+    // Get settings from localStorage with defaults
+    const batchSize = parseInt(localStorage.getItem('screening_batch_size') || '10');
+    const strategy = localStorage.getItem('screening_strategy') || 'relevance';
+    const classifier = localStorage.getItem('screening_classifier') || 'random_forest';
+    
+    // Validate and clamp batch size
+    const validBatchSize = Math.max(1, Math.min(100, batchSize));
+    // Validate strategy
+    const validStrategy = (strategy === 'relevance' || strategy === 'uncertainty') ? strategy : 'relevance';
+    // Validate classifier
+    const validClassifiers = ['logistic', 'svm', 'random_forest', 'naive_bayes'];
+    const validClassifier = validClassifiers.includes(classifier) ? classifier : 'random_forest';
+    
+    const response = await fetch(`/api/projects/${projectId}/screening/next?batch_size=${validBatchSize}&strategy=${validStrategy}&classifier=${validClassifier}`);
     
     if (!response.ok) {
       const error = await response.json();
@@ -2418,7 +2543,20 @@ async function autoLabelPapers(projectId) {
   updateScreeningStatus('Auto-labeling papers...', 'info');
   
   try {
-    const response = await fetch(`/api/projects/${projectId}/screening/auto-label?classifier=random_forest`, {
+    // Get settings from localStorage with defaults
+    const classifier = localStorage.getItem('screening_classifier') || 'random_forest';
+    const includeThreshold = parseFloat(localStorage.getItem('auto_label_include_threshold') || '0.8');
+    const excludeThreshold = parseFloat(localStorage.getItem('auto_label_exclude_threshold') || '0.2');
+    
+    // Validate classifier
+    const validClassifiers = ['logistic', 'svm', 'random_forest', 'naive_bayes'];
+    const validClassifier = validClassifiers.includes(classifier) ? classifier : 'random_forest';
+    
+    // Validate thresholds
+    const validIncludeThreshold = Math.max(0, Math.min(1, includeThreshold));
+    const validExcludeThreshold = Math.max(0, Math.min(1, excludeThreshold));
+    
+    const response = await fetch(`/api/projects/${projectId}/screening/auto-label?classifier=${validClassifier}&include_threshold=${validIncludeThreshold}&exclude_threshold=${validExcludeThreshold}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -2536,7 +2674,11 @@ async function runColdStart(projectId) {
     if (apiKeyInput && apiKeyInput.value) {
       requestBody.api_key = apiKeyInput.value;
     }
-    requestBody.n = 10;
+    
+    // Get cold start batch size from localStorage with default
+    const coldStartBatchSize = parseInt(localStorage.getItem('cold_start_batch_size') || '10');
+    const validColdStartBatchSize = Math.max(1, Math.min(50, coldStartBatchSize));
+    requestBody.n = validColdStartBatchSize;
     
     const response = await fetch(`/api/projects/${projectId}/screening/cold-start`, {
       method: 'POST',
@@ -2582,7 +2724,20 @@ async function autoLabelAllPapers(projectId) {
   updateScreeningStatus('Auto-labeling all remaining papers...', 'info');
   
   try {
-    const response = await fetch(`/api/projects/${projectId}/screening/auto-label?classifier=random_forest`, {
+    // Get settings from localStorage with defaults
+    const classifier = localStorage.getItem('screening_classifier') || 'random_forest';
+    const includeThreshold = parseFloat(localStorage.getItem('auto_label_include_threshold') || '0.8');
+    const excludeThreshold = parseFloat(localStorage.getItem('auto_label_exclude_threshold') || '0.2');
+    
+    // Validate classifier
+    const validClassifiers = ['logistic', 'svm', 'random_forest', 'naive_bayes'];
+    const validClassifier = validClassifiers.includes(classifier) ? classifier : 'random_forest';
+    
+    // Validate thresholds
+    const validIncludeThreshold = Math.max(0, Math.min(1, includeThreshold));
+    const validExcludeThreshold = Math.max(0, Math.min(1, excludeThreshold));
+    
+    const response = await fetch(`/api/projects/${projectId}/screening/auto-label?classifier=${validClassifier}&include_threshold=${validIncludeThreshold}&exclude_threshold=${validExcludeThreshold}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -2954,6 +3109,25 @@ async function exportPapers(format) {
     exportButton.disabled = false;
     exportButton.innerHTML = originalText;
   }
+}
+
+// Initialize header controls sync
+if (headerProjectInput) {
+  headerProjectInput.addEventListener('input', () => {
+    const projectId = document.getElementById("project_id");
+    const literatureProjectId = document.getElementById("literature-project-id");
+    if (projectId) projectId.value = headerProjectInput.value;
+    if (literatureProjectId) literatureProjectId.value = headerProjectInput.value;
+  });
+}
+
+if (headerPaperLimitInput) {
+  headerPaperLimitInput.addEventListener('input', () => {
+    const paperLimit = document.getElementById("paper_limit");
+    const literaturePaperLimit = document.getElementById("literature-paper-limit");
+    if (paperLimit) paperLimit.value = headerPaperLimitInput.value;
+    if (literaturePaperLimit) literaturePaperLimit.value = headerPaperLimitInput.value;
+  });
 }
 
 // Initialize theme and start conversation
