@@ -28,17 +28,17 @@ ENV PYTHONUNBUFFERED=1
 ENV FLASK_APP=webapp.app:main
 ENV FLASK_ENV=production
 ENV FLASK_HOST=0.0.0.0
-ENV FLASK_PORT=5000
+ENV FLASK_PORT=5001
 
 # Create data directory
 RUN mkdir -p /app/data
 
 # Expose port
-EXPOSE 5000
+EXPOSE 5001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5000/ || exit 1
+    CMD curl -f http://localhost:5001/api/health || exit 1
 
 # Run the application
 CMD ["python", "-m", "webapp.app"]

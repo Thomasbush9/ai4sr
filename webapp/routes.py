@@ -6,13 +6,75 @@ from agents.orchestrator import literature_review, rag_answer
 from db.repository import get_or_create_project, save_pico, get_pico, get_pico_expansion
 from agents.pico import PICO, expand_pico
 from agents.corpus_generator import generate_corpus
+from utils.logger import get_logger
+from functools import wraps
 
 api_bp = Blueprint("api", __name__)
+logger = get_logger("webapp.routes")
+
+
+def handle_errors(f):
+    """Decorator to standardize error handling across routes."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except ValueError as e:
+            logger.warning(f"Validation error in {f.__name__}: {e}")
+            return jsonify({"error": str(e)}), 400
+        except KeyError as e:
+            logger.warning(f"Missing required field in {f.__name__}: {e}")
+            return jsonify({"error": f"Missing required field: {e}"}), 400
+        except Exception as e:
+            logger.error(f"Unexpected error in {f.__name__}: {e}", exc_info=True)
+            return jsonify({"error": "An internal error occurred"}), 500
+    return decorated_function
+
+
+def validate_int(value, field_name, min_val=None, max_val=None):
+    """Validate and convert a value to integer."""
+    try:
+        int_val = int(value)
+        if min_val is not None and int_val < min_val:
+            raise ValueError(f"{field_name} must be at least {min_val}")
+        if max_val is not None and int_val > max_val:
+            raise ValueError(f"{field_name} must be at most {max_val}")
+        return int_val
+    except (ValueError, TypeError):
+        raise ValueError(f"{field_name} must be a valid integer")
+
+
+@api_bp.get("/health")
+def health_check():
+    """Health check endpoint for monitoring and Docker healthchecks."""
+    try:
+        # Check database connectivity
+        with get_db() as db:
+            db.execute("SELECT 1").fetchone()
+        
+        return jsonify({
+            "status": "healthy",
+            "service": "ai4sr",
+            "timestamp": datetime.utcnow().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }), 503
 
 @api_bp.post("/start")
+@handle_errors
 def start():
+    """Start a new conversation."""
     data = request.get_json(force=True) if request.is_json else {}
     project_name = data.get("project_name", "default")
+    
+    if not isinstance(project_name, str):
+        project_name = str(project_name)
+    project_name = project_name.strip() or "default"
     
     with get_db() as db:
         # Get or create project
@@ -25,6 +87,8 @@ def start():
         )
         conv_id = cur.lastrowid
         db.commit()
+    
+    logger.info(f"Started conversation {conv_id} for project {project_id}")
     return jsonify({"conversation_id": conv_id, "project_id": project_id})
 
 @api_bp.get("/projects")
@@ -113,126 +177,125 @@ def test_azure_config():
         return jsonify({"success": False, "error": str(e)}), 400
 
 @api_bp.post("/projects")
+@handle_errors
 def create_project():
     """Create a new project."""
-    try:
-        data = request.get_json(force=True) if request.is_json else {}
-        project_name = data.get("name", "").strip()
+    data = request.get_json(force=True) if request.is_json else {}
+    project_name = data.get("name", "").strip()
+    
+    if not project_name:
+        raise ValueError("Project name is required")
+    
+    if project_name.lower() == "default":
+        raise ValueError("Project name 'default' is reserved")
+    
+    with get_db() as db:
+        from db.repository import get_or_create_project
         
-        if not project_name:
-            return jsonify({"error": "Project name is required"}), 400
+        project_id = get_or_create_project(db, project_name)
+        db.commit()
         
-        if project_name.lower() == "default":
-            return jsonify({"error": "Project name 'default' is reserved"}), 400
-        
-        with get_db() as db:
-            from db.repository import get_or_create_project
-            
-            project_id = get_or_create_project(db, project_name)
-            db.commit()
-            
-            return jsonify({
-                "message": f"Project '{project_name}' created successfully",
-                "project_id": project_id,
-                "name": project_name
-            })
-            
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logger.info(f"Created project {project_id}: {project_name}")
+        return jsonify({
+            "message": f"Project '{project_name}' created successfully",
+            "project_id": project_id,
+            "name": project_name
+        })
 
 @api_bp.delete("/projects/<int:project_id>")
+@handle_errors
 def delete_project(project_id):
     """Delete a project and all its associated data"""
-    try:
-        from pathlib import Path
-        import shutil
+    from pathlib import Path
+    import shutil
+    
+    with get_db() as db:
+        # Check if project exists
+        project = db.execute("SELECT name FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
         
-        with get_db() as db:
-            # Check if project exists
-            project = db.execute("SELECT name FROM projects WHERE id = ?", (project_id,)).fetchone()
-            if not project:
-                return jsonify({"error": "Project not found"}), 404
-            
-            project_name = project['name']
-            
-            # Delete all associated data (ON DELETE CASCADE should handle most, but we'll be explicit)
-            # Delete agent summaries
-            db.execute("DELETE FROM agent_summaries WHERE project_id = ?", (project_id,))
-            
-            # Delete PICO data
-            db.execute("DELETE FROM pico_expansions WHERE project_id = ?", (project_id,))
-            db.execute("DELETE FROM pico WHERE project_id = ?", (project_id,))
-            
-            # Delete ingestion logs
-            db.execute("DELETE FROM review_ingestion_logs WHERE project_id = ?", (project_id,))
-            
-            # Delete screening labels (papers will cascade)
-            db.execute("DELETE FROM screening_labels WHERE project_id = ?", (project_id,))
-            
-            # Delete FTS data for papers
-            db.execute("DELETE FROM papers_fts WHERE rowid IN (SELECT id FROM papers WHERE project_id = ?)", (project_id,))
-            
-            # Delete all papers for this project
-            db.execute("DELETE FROM papers WHERE project_id = ?", (project_id,))
-            
-            # Delete all conversations and messages for this project
-            db.execute("DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = ?)", (project_id,))
-            db.execute("DELETE FROM conversations WHERE project_id = ?", (project_id,))
-            
-            # Delete the project itself
-            db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-            
-            db.commit()
-            
-            # Delete RAG embeddings directory for this project
-            try:
-                from config import REPO_ROOT
-                rag_dir = REPO_ROOT / "data" / "rag_embeddings" / f"project_{project_id}"
-                if rag_dir.exists():
-                    shutil.rmtree(rag_dir)
-                    print(f"DEBUG: Deleted RAG embeddings directory: {rag_dir}", flush=True)
-            except Exception as e:
-                print(f"WARNING: Failed to delete RAG embeddings directory: {e}", flush=True)
-                # Don't fail the deletion if RAG cleanup fails
-            
-            return jsonify({"message": f"Project '{project_name}' deleted successfully"})
-            
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        project_name = project['name']
+        
+        # Delete all associated data (ON DELETE CASCADE should handle most, but we'll be explicit)
+        # Delete agent summaries
+        db.execute("DELETE FROM agent_summaries WHERE project_id = ?", (project_id,))
+        
+        # Delete PICO data
+        db.execute("DELETE FROM pico_expansions WHERE project_id = ?", (project_id,))
+        db.execute("DELETE FROM pico WHERE project_id = ?", (project_id,))
+        
+        # Delete ingestion logs
+        db.execute("DELETE FROM review_ingestion_logs WHERE project_id = ?", (project_id,))
+        
+        # Delete screening labels (papers will cascade)
+        db.execute("DELETE FROM screening_labels WHERE project_id = ?", (project_id,))
+        
+        # Delete FTS data for papers
+        db.execute("DELETE FROM papers_fts WHERE rowid IN (SELECT id FROM papers WHERE project_id = ?)", (project_id,))
+        
+        # Delete all papers for this project
+        db.execute("DELETE FROM papers WHERE project_id = ?", (project_id,))
+        
+        # Delete all conversations and messages for this project
+        db.execute("DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE project_id = ?)", (project_id,))
+        db.execute("DELETE FROM conversations WHERE project_id = ?", (project_id,))
+        
+        # Delete the project itself
+        db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        
+        db.commit()
+        
+        # Delete RAG embeddings directory for this project
+        try:
+            from config import REPO_ROOT
+            rag_dir = REPO_ROOT / "data" / "rag_embeddings" / f"project_{project_id}"
+            if rag_dir.exists():
+                shutil.rmtree(rag_dir)
+                logger.debug(f"Deleted RAG embeddings directory: {rag_dir}")
+        except Exception as e:
+            logger.warning(f"Failed to delete RAG embeddings directory: {e}")
+            # Don't fail the deletion if RAG cleanup fails
+        
+        logger.info(f"Project {project_id} ({project_name}) deleted successfully")
+        return jsonify({"message": f"Project '{project_name}' deleted successfully"})
 
 @api_bp.post("/message")
+@handle_errors
 def message():
-    data = request.get_json(force=True)
-    conv_id   = int(data["conversation_id"])
-    text      = (data.get("text") or "").strip()
-    modality  = (data.get("modality") or "").strip()  # "literature" | "rag"
-    project_name = data.get("project_id")  # Get the raw value first
-    paper_limit = int(data.get("paper_limit", 10))  # Default to 10 if not provided
-    user_api_key = data.get("api_key")  # Get API key from frontend
-    # Validate paper limit
-    paper_limit = max(1, min(50, paper_limit))  # Clamp between 1 and 50
+    """Handle a chat message."""
+    data = request.get_json(force=True) if request.is_json else {}
     
-    # Debug: print what we received
-    print(f"DEBUG: Received project_id: {repr(project_name)}")
-    print(f"DEBUG: Received paper_limit: {paper_limit}")
+    # Validate required fields
+    if "conversation_id" not in data:
+        raise ValueError("conversation_id is required")
+    
+    conv_id = validate_int(data["conversation_id"], "conversation_id", min_val=1)
+    text = (data.get("text") or "").strip()
+    modality = (data.get("modality") or "").strip()  # "literature" | "rag"
+    project_name = data.get("project_id")  # Get the raw value first
+    user_api_key = data.get("api_key")  # Get API key from frontend
+    
+    # Validate paper limit
+    paper_limit = validate_int(data.get("paper_limit", 10), "paper_limit", min_val=1, max_val=50)
+    
+    logger.debug(f"Received message: conversation_id={conv_id}, modality={modality}, paper_limit={paper_limit}")
     
     # Ensure project_name is not None or empty, default to "default"
     if not project_name or (isinstance(project_name, str) and project_name.strip() == ""):
         project_name = "default"
     
-    print(f"DEBUG: Final project_name: {repr(project_name)}")
-    
     # Convert to int if it's a numeric string, otherwise treat as name
     if isinstance(project_name, str) and project_name.isdigit():
         project_id = int(project_name)
-        print(f"DEBUG: Using numeric project_id: {project_id}")
+        logger.debug(f"Using numeric project_id: {project_id}")
     else:
         # Create or get project by name
-        print(f"DEBUG: Creating/getting project with name: {repr(project_name)}")
+        logger.debug(f"Creating/getting project with name: {repr(project_name)}")
         with get_db() as db:
             project_id = get_or_create_project(db, project_name)
             db.commit()
-        print(f"DEBUG: Got project_id: {project_id}")
+        logger.debug(f"Got project_id: {project_id}")
 
     # Ensure conversation is linked to the project
     with get_db() as db:
@@ -249,7 +312,7 @@ def message():
                 (project_id, conv_id)
             )
             db.commit()
-            print(f"DEBUG: Updated conversation {conv_id} to project {project_id}")
+            logger.debug(f"Updated conversation {conv_id} to project {project_id}")
         elif not existing_conv:
             # Create conversation if it doesn't exist
             db.execute(
@@ -257,7 +320,7 @@ def message():
                 (conv_id, project_id, datetime.utcnow().isoformat())
             )
             db.commit()
-            print(f"DEBUG: Created conversation {conv_id} for project {project_id}")
+            logger.debug(f"Created conversation {conv_id} for project {project_id}")
 
     if not text:
         return jsonify({"reply": "Please enter a query."})
@@ -285,9 +348,10 @@ def message():
             project_id = pid  # ensure we carry the resolved id
             reply_core = "Literature review completed."
             literature_success = True
+            logger.info(f"Literature review completed for project {project_id}")
         except Exception as e:
             reply_core = f"Error during literature review: {e}"
-            print(f"DEBUG: Literature review failed: {e}")
+            logger.error(f"Literature review failed: {e}", exc_info=True)
 
         # Summarize & save assistant message
         with get_db() as db:
@@ -422,132 +486,113 @@ def get_project_pico(project_id):
 
 
 @api_bp.post("/projects/<int:project_id>/expand-pico")
+@handle_errors
 def expand_project_pico(project_id):
     """Expand PICO into search queries using Azure AI Foundry."""
-    try:
-        print(f"DEBUG: Starting PICO expansion for project {project_id}", flush=True)
+    logger.info(f"Starting PICO expansion for project {project_id}")
+    
+    # Get API key from request or use default
+    data = request.get_json(force=True) if request.is_json else {}
+    api_key = data.get("api_key")
+    
+    # Get PICO from database
+    with get_db() as db:
+        pico = get_pico(db, project_id)
         
-        # Get API key from request or use default
-        data = request.get_json(force=True) if request.is_json else {}
-        api_key = data.get("api_key")
-        
-        # Get PICO from database
-        with get_db() as db:
-            pico = get_pico(db, project_id)
-            
-            if not pico:
-                print(f"ERROR: PICO not found for project {project_id}", flush=True)
-                return jsonify({"error": "PICO not found for this project. Please create PICO first."}), 404
-        
-        print(f"DEBUG: PICO found, expanding...", flush=True)
-        # Expand PICO (this may take time - Azure API call)
-        expansion_result = expand_pico(pico, project_id, api_key=api_key)
-        
-        print(f"DEBUG: PICO expansion completed successfully", flush=True)
-        return jsonify(expansion_result)
-        
-    except ValueError as e:
-        print(f"ERROR: PICO expansion ValueError: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        print(f"ERROR: PICO expansion failed: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        if not pico:
+            logger.warning(f"PICO not found for project {project_id}")
+            return jsonify({"error": "PICO not found for this project. Please create PICO first."}), 404
+    
+    logger.debug("PICO found, expanding...")
+    # Expand PICO (this may take time - Azure API call)
+    expansion_result = expand_pico(pico, project_id, api_key=api_key)
+    
+    logger.info(f"PICO expansion completed successfully for project {project_id}")
+    return jsonify(expansion_result)
 
 
 @api_bp.get("/projects/<int:project_id>/queries")
+@handle_errors
 def get_project_queries(project_id):
     """Get expanded queries for a project."""
-    try:
-        with get_db() as db:
-            expansion = get_pico_expansion(db, project_id)
-            
-            if not expansion:
-                return jsonify({"error": "No expansion found for this project. Please run expand-pico first."}), 404
-            
-            return jsonify(expansion)
-            
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    with get_db() as db:
+        expansion = get_pico_expansion(db, project_id)
+        
+        if not expansion:
+            return jsonify({"error": "No expansion found for this project. Please run expand-pico first."}), 404
+        
+        return jsonify(expansion)
 
 
 @api_bp.post("/projects/<int:project_id>/generate-corpus")
+@handle_errors
 def generate_project_corpus(project_id):
     """Generate corpus for a project from stored queries.
     
     Uses server-side config limits. Ignores any max_results in request body.
     """
-    try:
-        print(f"DEBUG: Starting corpus generation for project {project_id}", flush=True)
+    logger.info(f"Starting corpus generation for project {project_id}")
+    
+    # Ignore max_results from request - use server config instead
+    data = request.get_json(force=True) if request.is_json else {}
+    # api_key can still be passed for compatibility, but max_results is ignored
+    
+    # Get expanded queries from database
+    with get_db() as db:
+        expansion = get_pico_expansion(db, project_id)
         
-        # Ignore max_results from request - use server config instead
-        data = request.get_json(force=True) if request.is_json else {}
-        # api_key can still be passed for compatibility, but max_results is ignored
+        if not expansion:
+            logger.warning(f"No PICO expansion found for project {project_id}")
+            return jsonify({
+                "error": "No expansion found for this project. Please run expand-pico first."
+            }), 404
         
-        # Get expanded queries from database
-        with get_db() as db:
-            expansion = get_pico_expansion(db, project_id)
-            
-            if not expansion:
-                print(f"ERROR: No PICO expansion found for project {project_id}", flush=True)
-                return jsonify({
-                    "error": "No expansion found for this project. Please run expand-pico first."
-                }), 404
-            
-            pubmed_query = expansion.get("pubmed_query")
-            openalex_query = expansion.get("openalex_query")
-            
-            print(f"DEBUG: Found PICO expansion - PubMed query length: {len(pubmed_query) if pubmed_query else 0}, OpenAlex query length: {len(openalex_query) if openalex_query else 0}", flush=True)
-            
-            if not pubmed_query and not openalex_query:
-                print(f"ERROR: Both queries are empty for project {project_id}", flush=True)
-                return jsonify({
-                    "error": "PICO expansion produced empty queries. Please expand PICO again or check the PICO content."
-                }), 400
+        pubmed_query = expansion.get("pubmed_query")
+        openalex_query = expansion.get("openalex_query")
         
-        # Generate corpus (max_results parameter is ignored, uses config limits)
-        print(f"DEBUG: Starting corpus generation from sources...", flush=True)
-        result = generate_corpus(
-            project_id=project_id,
-            pubmed_query=pubmed_query,
-            openalex_query=openalex_query,
-            max_results=None,  # Explicitly None - will use config limits
-            api_key=data.get("api_key")
-        )
+        logger.debug(f"Found PICO expansion - PubMed query length: {len(pubmed_query) if pubmed_query else 0}, OpenAlex query length: {len(openalex_query) if openalex_query else 0}")
         
-        print(f"DEBUG: Corpus generation completed successfully", flush=True)
-        # Return simplified JSON response
-        response_data = {
-            "status": "completed",
-            "project_id": project_id,
-            "sources": {
-                "pubmed": {
-                    "fetched": result["pubmed_count"],
-                    "unique": result["pubmed_unique"]
-                },
-                "openalex": {
-                    "fetched": result["openalex_count"],
-                    "unique": result["openalex_unique"]
-                }
+        if not pubmed_query and not openalex_query:
+            logger.error(f"Both queries are empty for project {project_id}")
+            return jsonify({
+                "error": "PICO expansion produced empty queries. Please expand PICO again or check the PICO content."
+            }), 400
+    
+    # Generate corpus (max_results parameter is ignored, uses config limits)
+    logger.debug("Starting corpus generation from sources...")
+    result = generate_corpus(
+        project_id=project_id,
+        pubmed_query=pubmed_query,
+        openalex_query=openalex_query,
+        max_results=None,  # Explicitly None - will use config limits
+        api_key=data.get("api_key")
+    )
+    
+    logger.info(f"Corpus generation completed successfully for project {project_id}")
+    
+    # Return simplified JSON response
+    response_data = {
+        "status": "completed",
+        "project_id": project_id,
+        "sources": {
+            "pubmed": {
+                "fetched": result["pubmed_count"],
+                "unique": result["pubmed_unique"]
             },
-            "total_unique": result["total_unique"],
-            "inserted_count": result["inserted_count"]
-        }
-        
-        # Include abstract coverage if available
-        if "abstract_coverage" in result:
-            response_data["abstract_coverage"] = result["abstract_coverage"]
-        
-        return jsonify(response_data)
-        
-    except Exception as e:
-        print(f"ERROR: Corpus generation failed: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e), "status": "failed"}), 500
+            "openalex": {
+                "fetched": result["openalex_count"],
+                "unique": result["openalex_unique"]
+            }
+        },
+        "total_unique": result["total_unique"],
+        "inserted_count": result["inserted_count"]
+    }
+    
+    # Include abstract coverage if available
+    if "abstract_coverage" in result:
+        response_data["abstract_coverage"] = result["abstract_coverage"]
+    
+    return jsonify(response_data)
 
 
 @api_bp.get("/projects/<int:project_id>/screening/next")
@@ -634,12 +679,25 @@ def save_screening_labels_endpoint(project_id):
         # Clear model cache for this project to force retraining
         clear_model_cache(project_id)
         
+        # Update RAG embeddings: add include/maybe papers, remove excluded papers
+        try:
+            from agents.rag_agent import RAGAgent
+            
+            logger.info(f"Syncing RAG embeddings after screening for project {project_id}")
+            rag_agent = RAGAgent(project_id=project_id)
+            rag_agent.sync_papers_from_db(project_id)
+            logger.info(f"RAG embeddings synced successfully for project {project_id}")
+        except Exception as e:
+            logger.warning(f"Failed to sync RAG embeddings after screening: {e}")
+            # Don't fail the request if RAG sync fails
+        
         return jsonify({
             "saved": result["saved"],
             "updated_papers": result["updated_papers"]
         })
         
     except Exception as e:
+        logger.error(f"Error saving screening labels: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 

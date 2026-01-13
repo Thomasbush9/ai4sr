@@ -433,15 +433,16 @@ def generate_corpus(
         save_ingestion_log(con, project_id, log_data)
         con.commit()
         
-        # Integrate RAG: Update embeddings for newly inserted papers
-        print(f"DEBUG: Updating RAG embeddings for project {project_id}...", flush=True)
+        # Integrate RAG: Add newly inserted papers to embeddings
+        # Note: Papers start as UNSCREENED, will be synced after screening
+        print(f"DEBUG: Adding newly inserted papers to RAG embeddings for project {project_id}...", flush=True)
         try:
             from agents.rag_agent import RAGAgent
             
             rag_agent = RAGAgent(project_id=project_id)
             
             # Query newly inserted papers from database directly
-            # Get all papers for this project (including UNSCREENED)
+            # Get all papers for this project (including UNSCREENED - they'll be filtered during screening)
             cur = con.execute("""
                 SELECT id, title, abstract, authors, year, venue, doi, status, 
                        score, rationale, pmid, pmcid, project_id
@@ -469,8 +470,10 @@ def generate_corpus(
             if papers:
                 # Add papers to RAG agent (batch processing)
                 # The add_papers method will skip duplicates automatically
+                # Note: UNSCREENED papers are added here, but will be removed if excluded during screening
                 rag_agent.add_papers(papers, project_id)
-                print(f"DEBUG: Successfully updated RAG embeddings for {len(papers)} papers", flush=True)
+                print(f"DEBUG: Successfully added {len(papers)} papers to RAG embeddings", flush=True)
+                print(f"DEBUG: Note: Papers will be synced (added/removed) based on screening results", flush=True)
             else:
                 print(f"DEBUG: No papers found for RAG update", flush=True)
                 

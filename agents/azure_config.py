@@ -499,16 +499,31 @@ def get_embeddings_batch(
 
         client = get_azure_client()
 
-        response = client.embeddings.create(
-            model=deployment_name,
-            input=valid_texts
-        )
+        try:
+            response = client.embeddings.create(
+                model=deployment_name,
+                input=valid_texts
+            )
+        except Exception as api_error:
+            # Provide helpful error message for 404 (deployment not found)
+            if "404" in str(api_error) or "NotFound" in str(type(api_error).__name__):
+                error_msg = (
+                    f"Embedding deployment '{deployment_name}' not found. "
+                    f"Please check that the deployment exists in your Azure AI Project. "
+                    f"Set AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME to the correct deployment name."
+                )
+                print(f"ERROR: {error_msg}")
+                raise Exception(error_msg) from api_error
+            raise
 
         if not response.data or len(response.data) != len(valid_texts):
             raise ValueError(f"Expected {len(valid_texts)} embeddings, got {len(response.data) if response.data else 0}")
 
         return [item.embedding for item in response.data]
     except Exception as e:
+        # Don't re-raise if it's already a helpful error message
+        if "Embedding deployment" in str(e):
+            raise
         error_msg = f"Failed to get batch embeddings: {str(e)}"
         print(f"ERROR: {error_msg}")
         raise Exception(error_msg) from e

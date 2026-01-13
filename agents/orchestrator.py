@@ -417,13 +417,20 @@ def rag_answer(question: str, project_id: int, db_conn=None, top_k: int = 5, api
         # Initialize RAG agent with project-specific vector database
         rag_agent = RAGAgent(project_id=project_id)
         
-        # Load papers for the specific project only
-        rag_agent._load_papers_from_db(project_id)
+        # Try to load papers and summaries (may fail if embeddings unavailable, but that's OK)
+        try:
+            rag_agent._load_papers_from_db(project_id)
+        except Exception as e:
+            print(f"DEBUG: Warning - Failed to load papers into vector DB: {e}")
+            print(f"DEBUG: Will use direct DB queries instead")
         
-        # Also load agent summaries if available
-        rag_agent._load_agent_summaries_from_db(project_id)
+        try:
+            rag_agent._load_agent_summaries_from_db(project_id)
+        except Exception as e:
+            print(f"DEBUG: Warning - Failed to load summaries into vector DB: {e}")
+            # Continue anyway
         
-        # Answer the question using RAG
+        # Answer the question using RAG (has DB fallback built-in)
         answer = rag_agent.forward(question, project_id, top_k)
         
         print(f"DEBUG: RAG answer generated successfully")
@@ -433,7 +440,23 @@ def rag_answer(question: str, project_id: int, db_conn=None, top_k: int = 5, api
         print(f"DEBUG: RAG error: {e}")
         import traceback
         traceback.print_exc()
-        return f"I encountered an error while answering your question: {str(e)}. Please make sure you have run a literature review first to populate the database."
+        
+        # Last resort: try to get papers directly from DB
+        try:
+            from db.connection import connect
+            from db.repository import list_included, list_maybe
+            
+            with connect() as con:
+                included = list_included(con, project_id)
+                maybe = list_maybe(con, project_id)
+                total = len(included) + len(maybe)
+                
+                if total > 0:
+                    return f"I encountered an error with the embedding system, but I found {total} papers in your database. Please check your Azure embedding deployment configuration. Error: {str(e)}"
+                else:
+                    return f"I encountered an error while answering your question: {str(e)}. Please make sure you have run a literature review first to populate the database."
+        except:
+            return f"I encountered an error while answering your question: {str(e)}. Please make sure you have run a literature review first to populate the database."
 if __name__ == "__main__":
 
     parser = ArgumentParser()

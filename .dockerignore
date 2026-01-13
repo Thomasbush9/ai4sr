@@ -1,19 +1,25 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
-venv/
-ENV/
 *.egg-info/
 dist/
 build/
+.eggs/
+*.egg
 
-# Environment
-.env
-.env.local
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
 
 # IDE
 .vscode/
@@ -22,32 +28,48 @@ build/
 *.swo
 *~
 
-# OS
-.DS_Store
-Thumbs.db
+# Environment files
+.env
+.env.local
+.env.*.local
 
-# Git
-.git/
-.gitignore
+# Database
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
 
-# Data (mounted as volume)
-data/
+# Logs
 logs/
-
-# Tests
-tests/
-.pytest_cache/
+*.log
 
 # Documentation
 *.md
-docs/
+!README.md
+
+# Tests
+tests/
+test_*.py
+*_test.py
 
 # Notebooks
 notebooks/
 *.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Docker
 Dockerfile
 docker-compose.yml
 .dockerignore
 
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Temporary files
+*.tmp
+*.bak
+*.swp

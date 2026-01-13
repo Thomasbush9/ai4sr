@@ -244,12 +244,128 @@ class RAGAgent:
                 self._save_vector_db()
                 print(f"DEBUG: Successfully added {len(paper_metadata)} papers to vector database")
             except Exception as e:
-                print(f"DEBUG: Error generating embeddings: {e}")
+                print(f"DEBUG: Warning - Failed to generate embeddings: {e}")
+                print(f"DEBUG: Papers will still be accessible via direct DB queries")
                 import traceback
                 traceback.print_exc()
-                raise
+                # Don't raise - allow papers to be accessed from DB directly
         elif skipped_count > 0:
             print(f"DEBUG: All {skipped_count} papers were duplicates, nothing to add")
+    
+    def remove_papers(self, paper_ids: List[int], project_id: int):
+        """Remove papers from the vector database.
+        
+        Args:
+            paper_ids: List of paper IDs to remove
+            project_id: Project ID to filter by
+        """
+        if not paper_ids:
+            return
+        
+        removed_count = 0
+        indices_to_remove = []
+        
+        for i, meta in enumerate(self.metadata):
+            if (meta.get('paper_id') in paper_ids and 
+                meta.get('project_id') == project_id and 
+                meta.get('type') == 'paper'):
+                indices_to_remove.append(i)
+                removed_count += 1
+        
+        if not indices_to_remove:
+            print(f"DEBUG: No papers to remove from vector database")
+            return
+        
+        # Remove in reverse order to maintain indices
+        indices_to_remove.sort(reverse=True)
+        
+        for idx in indices_to_remove:
+            # Remove from metadata
+            self.metadata.pop(idx)
+            # Remove from embeddings array
+            if len(self.embeddings) > 0:
+                self.embeddings = np.delete(self.embeddings, idx, axis=0)
+        
+        # Save to disk
+        self._save_vector_db()
+        print(f"DEBUG: Removed {removed_count} papers from vector database")
+    
+    def sync_papers_from_db(self, project_id: int):
+        """Sync RAG embeddings with database: add include/maybe papers, remove excluded papers.
+        
+        Args:
+            project_id: Project ID to sync
+        """
+        try:
+            from db.connection import connect
+            from db.repository import list_included, list_maybe
+            
+            print(f"DEBUG: Syncing RAG embeddings with database for project {project_id}")
+            
+            with connect() as con:
+                # Get included and maybe papers (should be in embeddings)
+                included_papers = list_included(con, project_id)
+                maybe_papers = list_maybe(con, project_id)
+                should_be_included = included_papers + maybe_papers
+                should_be_included_ids = {p['id'] for p in should_be_included}
+                
+                # Get excluded papers (should NOT be in embeddings)
+                excluded_papers = con.execute("""
+                    SELECT id FROM papers 
+                    WHERE project_id = ? AND status = 'excluded'
+                """, (project_id,)).fetchall()
+                excluded_ids = {row[0] for row in excluded_papers}
+                
+                # Get current paper IDs in embeddings
+                current_paper_ids = {
+                    meta.get('paper_id') 
+                    for meta in self.metadata 
+                    if meta.get('project_id') == project_id and meta.get('type') == 'paper'
+                }
+                
+                # Find papers to add (in DB but not in embeddings)
+                papers_to_add = [
+                    p for p in should_be_included 
+                    if p['id'] not in current_paper_ids
+                ]
+                
+                # Find papers to remove (excluded in DB but still in embeddings)
+                papers_to_remove = [
+                    paper_id for paper_id in current_paper_ids 
+                    if paper_id in excluded_ids
+                ]
+                
+                # Remove excluded papers
+                if papers_to_remove:
+                    print(f"DEBUG: Removing {len(papers_to_remove)} excluded papers from embeddings")
+                    self.remove_papers(papers_to_remove, project_id)
+                
+                # Add new include/maybe papers
+                if papers_to_add:
+                    print(f"DEBUG: Adding {len(papers_to_add)} new include/maybe papers to embeddings")
+                    papers_for_rag = []
+                    for paper in papers_to_add:
+                        papers_for_rag.append({
+                            'id': paper['id'],
+                            'title': paper.get('title', ''),
+                            'abstract': paper.get('abstract', ''),
+                            'authors': paper.get('authors', ''),
+                            'year': paper.get('year'),
+                            'venue': paper.get('venue', ''),
+                            'doi': paper.get('doi', ''),
+                            'status': paper.get('status', ''),
+                            'score': paper.get('score'),
+                            'rationale': paper.get('rationale', '')
+                        })
+                    self.add_papers(papers_for_rag, project_id)
+                
+                if not papers_to_add and not papers_to_remove:
+                    print(f"DEBUG: RAG embeddings already in sync with database")
+                
+        except Exception as e:
+            print(f"DEBUG: Error syncing RAG embeddings: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _load_agent_summaries_from_db(self, project_id: int = None):
         """Load agent summaries from SQLite database and generate embeddings if not already present."""
@@ -364,13 +480,63 @@ class RAGAgent:
                 self._save_vector_db()
                 print(f"DEBUG: Successfully added {len(summary_metadata)} summaries to vector database")
             except Exception as e:
-                print(f"DEBUG: Error generating summary embeddings: {e}")
+                print(f"DEBUG: Warning - Failed to generate summary embeddings: {e}")
+                print(f"DEBUG: Summaries will still be accessible via direct DB queries")
                 import traceback
                 traceback.print_exc()
-                raise
+                # Don't raise - allow summaries to be accessed from DB directly
+    
+    def _retrieve_papers_from_db(self, project_id: int, top_k: int = 5) -> List[Dict[str, Any]]:
+        """Fallback: Retrieve papers directly from database when embeddings are unavailable.
+        
+        Args:
+            project_id: Project ID to filter papers
+            top_k: Number of papers to retrieve
+            
+        Returns:
+            List of paper metadata dictionaries
+        """
+        try:
+            from db.connection import connect
+            from db.repository import list_included, list_maybe
+            
+            print(f"DEBUG: Retrieving papers directly from database for project {project_id}")
+            
+            with connect() as con:
+                included_papers = list_included(con, project_id)
+                maybe_papers = list_maybe(con, project_id)
+                all_papers = included_papers + maybe_papers
+                
+                # Convert to RAG format
+                papers = []
+                for paper in all_papers[:top_k]:  # Limit to top_k
+                    papers.append({
+                        'paper_id': paper.get('id'),
+                        'title': paper.get('title', ''),
+                        'abstract': paper.get('abstract', ''),
+                        'authors': paper.get('authors', ''),
+                        'year': paper.get('year'),
+                        'venue': paper.get('venue', ''),
+                        'doi': paper.get('doi', ''),
+                        'status': paper.get('status', ''),
+                        'score': paper.get('score'),
+                        'rationale': paper.get('rationale', ''),
+                        'project_id': project_id,
+                        'type': 'paper'
+                    })
+                
+                print(f"DEBUG: Retrieved {len(papers)} papers directly from database")
+                return papers
+        except Exception as e:
+            print(f"DEBUG: Error retrieving papers from DB: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
     
     def retrieve_relevant_papers(self, question: str, project_id: int, top_k: int = 5) -> List[Dict[str, Any]]:
         """Retrieve most relevant papers for a question.
+        
+        Uses vector similarity if embeddings are available, otherwise falls back to direct DB query.
         
         Args:
             question: The question to retrieve papers for
@@ -380,9 +546,10 @@ class RAGAgent:
         Returns:
             List of relevant paper/summary metadata dictionaries
         """
+        # If no embeddings available, fall back to direct DB query
         if len(self.embeddings) == 0:
-            print("DEBUG: No embeddings available for retrieval")
-            return []
+            print("DEBUG: No embeddings available, using direct DB query fallback")
+            return self._retrieve_papers_from_db(project_id, top_k)
         
         print(f"DEBUG: Retrieving papers for project {project_id}, question: '{question}'")
         
@@ -390,8 +557,8 @@ class RAGAgent:
         try:
             question_embedding = self._get_embedding(question)
         except Exception as e:
-            print(f"DEBUG: Error getting question embedding: {e}")
-            return []
+            print(f"DEBUG: Error getting question embedding: {e}, falling back to DB query")
+            return self._retrieve_papers_from_db(project_id, top_k)
         
         # Calculate similarities with project filtering
         similarities = []
@@ -435,11 +602,16 @@ class RAGAgent:
     
     def forward(self, question: str, project_id: int, top_k: int = 5) -> str:
         """Answer a question using RAG."""
-        # Retrieve relevant papers
+        # Retrieve relevant papers (with DB fallback if embeddings fail)
         relevant_papers = self.retrieve_relevant_papers(question, project_id, top_k)
         
         if not relevant_papers:
-            return "I don't have any relevant papers in the database for this project. Please run a literature review first to populate the database."
+            # Try direct DB query as last resort
+            print("DEBUG: No papers from vector search, trying direct DB query")
+            relevant_papers = self._retrieve_papers_from_db(project_id, top_k)
+            
+            if not relevant_papers:
+                return "I don't have any relevant papers in the database for this project. Please run a literature review first to populate the database."
         
         # Format context from retrieved papers and summaries
         context_parts = []

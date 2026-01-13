@@ -17,20 +17,32 @@ sys.path.insert(0, str(project_root))
 
 from webapp import create_app
 from db.connection import init_db
-from config import DB_PATH
+from config import DB_PATH, validate_required_config, IS_PRODUCTION
+from utils.logger import setup_logging, get_logger
 
 def main():
     """Main entry point for the application."""
+    # Set up logging
+    logger = setup_logging(
+        log_file=os.getenv("LOG_FILE", str(project_root / "logs" / "app.log"))
+    )
+    app_logger = get_logger("webapp.app")
+    
+    # Validate configuration
+    if not validate_required_config():
+        app_logger.error("Configuration validation failed. Exiting.")
+        sys.exit(1)
+    
     # Always try to initialize database (safe to run multiple times)
     try:
         if not os.path.exists(DB_PATH):
-            print(f"📊 Database not found. Initializing at {DB_PATH}...")
+            app_logger.info(f"Database not found. Initializing at {DB_PATH}...")
         else:
-            print(f"📊 Database found at {DB_PATH}. Verifying schema...")
+            app_logger.info(f"Database found at {DB_PATH}. Verifying schema...")
         init_db()
     except Exception as e:
-        print(f"❌ Database initialization failed: {e}")
-        print("   This might cause issues with the application.")
+        app_logger.error(f"Database initialization failed: {e}")
+        app_logger.warning("This might cause issues with the application.")
         # Continue anyway - maybe the database exists and is fine
     
     # Create Flask app
@@ -38,11 +50,18 @@ def main():
     
     # Get configuration from environment
     host = os.getenv('FLASK_HOST', '0.0.0.0')
-    port = int(os.getenv('FLASK_PORT', '5000'))
-    debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+    port = int(os.getenv('FLASK_PORT', '5001'))  # Default to 5001 for consistency
     
-    print(f"Starting AI4SR app on {host}:{port}")
-    print(f"Debug mode: {debug}")
+    # Disable debug mode in production
+    debug = False
+    if not IS_PRODUCTION:
+        debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+    else:
+        app_logger.warning("Debug mode disabled in production")
+    
+    app_logger.info(f"Starting AI4SR app on {host}:{port}")
+    app_logger.info(f"Debug mode: {debug}")
+    app_logger.info(f"Environment: {'PRODUCTION' if IS_PRODUCTION else 'DEVELOPMENT'}")
     
     # Run the app
     app.run(host=host, port=port, debug=debug)
