@@ -244,10 +244,19 @@ class RAGAgent:
                 self._save_vector_db()
                 print(f"DEBUG: Successfully added {len(paper_metadata)} papers to vector database")
             except Exception as e:
-                print(f"DEBUG: Warning - Failed to generate embeddings: {e}")
-                print(f"DEBUG: Papers will still be accessible via direct DB queries")
-                import traceback
-                traceback.print_exc()
+                # Check if it's a deployment not found error (expected)
+                is_deployment_error = "Embedding deployment" in str(e) or "404" in str(e) or "NotFound" in str(e)
+                
+                if is_deployment_error:
+                    # Just log a clean warning without traceback for expected errors
+                    print(f"DEBUG: Warning - Embedding deployment not available: {e}")
+                    print(f"DEBUG: Papers will still be accessible via direct DB queries")
+                else:
+                    # For unexpected errors, show full traceback
+                    print(f"DEBUG: Warning - Failed to generate embeddings: {e}")
+                    print(f"DEBUG: Papers will still be accessible via direct DB queries")
+                    import traceback
+                    traceback.print_exc()
                 # Don't raise - allow papers to be accessed from DB directly
         elif skipped_count > 0:
             print(f"DEBUG: All {skipped_count} papers were duplicates, nothing to add")
@@ -480,10 +489,19 @@ class RAGAgent:
                 self._save_vector_db()
                 print(f"DEBUG: Successfully added {len(summary_metadata)} summaries to vector database")
             except Exception as e:
-                print(f"DEBUG: Warning - Failed to generate summary embeddings: {e}")
-                print(f"DEBUG: Summaries will still be accessible via direct DB queries")
-                import traceback
-                traceback.print_exc()
+                # Check if it's a deployment not found error (expected)
+                is_deployment_error = "Embedding deployment" in str(e) or "404" in str(e) or "NotFound" in str(e)
+                
+                if is_deployment_error:
+                    # Just log a clean warning without traceback for expected errors
+                    print(f"DEBUG: Warning - Embedding deployment not available for summaries: {e}")
+                    print(f"DEBUG: Summaries will still be accessible via direct DB queries")
+                else:
+                    # For unexpected errors, show full traceback
+                    print(f"DEBUG: Warning - Failed to generate summary embeddings: {e}")
+                    print(f"DEBUG: Summaries will still be accessible via direct DB queries")
+                    import traceback
+                    traceback.print_exc()
                 # Don't raise - allow summaries to be accessed from DB directly
     
     def _retrieve_papers_from_db(self, project_id: int, top_k: int = 5) -> List[Dict[str, Any]]:

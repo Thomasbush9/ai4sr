@@ -42,3 +42,19 @@ Thumbs.db
 
 # Docker
 .dockerignore
+
+# Test files (optional - uncomment if you want to exclude tests)
+# test_*.py
+# tests/
+
+# Notebooks (optional - uncomment if you want to exclude notebooks)
+# notebooks/
+# *.ipynb
+
+# Migration scripts (optional - uncomment if you want to exclude)
+# migrate_*.py
+
+# Backup files
+*.backup
+*.bak
+*~

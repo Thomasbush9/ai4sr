@@ -1,4 +1,4 @@
-# AI4SR - Literature Review Assistant
+# AI4SR - AI-Powered Systematic Review Assistant
 
 An AI-powered literature review assistant that helps researchers find, analyze, and organize academic papers using advanced language models and semantic search.
 
@@ -10,125 +10,168 @@ An AI-powered literature review assistant that helps researchers find, analyze, 
 - **Smart Screening**: AI-powered relevance scoring and rationale
 - **PICO Framework Support**: Structured research question formulation
 - **Docker Support**: Easy deployment and distribution
-- **Health Monitoring**: Built-in health check endpoints
 
-## Architecture
+## Prerequisites
 
-```
-┌─────────────┐
-│   Frontend  │ (HTML/CSS/JS)
-└──────┬──────┘
-       │ HTTP/REST
-┌──────▼──────┐
-│  Flask App  │ (webapp/)
-└──────┬──────┘
-       │
-   ┌───┴───┐
-   │       │
-┌──▼──┐ ┌──▼────┐
-│ DB  │ │Agents │
-└─────┘ └───────┘
-```
-
-**Components:**
-- **Web Application** (`webapp/`): Flask-based REST API and web interface
-- **AI Agents** (`agents/`): Specialized agents for literature review, RAG, PICO expansion
-- **Database** (`db/`): SQLite database with schema management
-- **Utilities** (`utils/`): Logging, configuration, and shared utilities
+- **Python 3.10+** (for local development)
+- **Docker & Docker Compose** (for containerized deployment)
+- **API Key**: Either:
+  - OpenAI API key, OR
+  - Azure AI Projects endpoint (see `SETUP_AZURE.md`)
 
 ## Quick Start
 
-**First time setup?** See [QUICK_START.md](QUICK_START.md) for detailed testing instructions.
+### Option 1: Docker Deployment (Recommended)
 
-### Option 1: Docker (Recommended)
+**Step 1: Clone the repository**
+```bash
+git clone <repository-url>
+cd ai4sr
+```
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd ai4sr
-   ```
+**Step 2: Create environment file**
+```bash
+cp env.example .env
+```
 
-2. **Set up environment**
-   ```bash
-   cp env.example .env
-   # Edit .env and add your OpenAI API key:
-   # OPENAI_KEY=your_api_key_here
-   ```
+**Step 3: Configure API key**
+Edit `.env` and add your OpenAI API key:
+```bash
+OPENAI_KEY=sk-your-api-key-here
+```
 
-3. **Run with Docker**
-   ```bash
-   docker-compose up -d
-   ```
+**Step 4: Generate SSL certificates**
+```bash
+# Generate self-signed certificates for HTTPS
+./nginx/generate-certs.sh
+```
 
-4. **Access the application**
-   - Open http://localhost:5001 in your browser
-   - Click the ⚙️ Settings button to configure your API key
-   - Start asking research questions!
+**Step 5: Build and run**
+```bash
+docker-compose up --build -d
+```
+
+**Step 6: Verify**
+```bash
+# Check container status
+docker-compose ps
+
+# Check health (HTTPS)
+curl -k https://localhost:5001/api/health
+
+# View logs
+docker-compose logs -f
+```
+
+**Step 7: Access the application**
+Open https://localhost:5001 in your browser.
+
+**Note:** Self-signed certificates will trigger a browser security warning. Click "Advanced" → "Proceed to localhost" to continue. For production, replace with certificates from a trusted CA (e.g., Let's Encrypt).
 
 ### Option 2: Local Development
 
-1. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   pip install -e .
-   ```
+**Step 1: Clone and navigate**
+```bash
+git clone <repository-url>
+cd ai4sr
+```
 
-2. **Set up environment**
-   ```bash
-   cp env.example .env
-   # Edit .env with your OpenAI API key
-   ```
+**Step 2: Install dependencies**
+```bash
+pip install -r requirements.txt
+pip install -e .
+```
 
-3. **Run the application**
-   ```bash
-   python run.py
-   ```
+**Step 3: Create environment file**
+```bash
+cp env.example .env
+```
 
-4. **Access at http://localhost:5001** (default port)
+**Step 4: Configure API key**
+Edit `.env` and add your OpenAI API key:
+```bash
+OPENAI_KEY=sk-your-api-key-here
+```
+
+**Step 5: Run the application**
+```bash
+python run.py
+```
+
+**Step 6: Verify**
+```bash
+# In another terminal
+curl http://localhost:5001/api/health
+```
+
+**Step 7: Access the application**
+Open http://localhost:5001 in your browser.
+
+**Note:** Local development runs on HTTP. For HTTPS, use Docker deployment with nginx reverse proxy.
+
+## Configuration
+
+### Required Environment Variables
+
+At minimum, you need **one** of the following:
+
+- `OPENAI_KEY`: Your OpenAI API key (get from https://platform.openai.com/api-keys)
+- `AZURE_EXISTING_AIPROJECT_ENDPOINT`: Azure AI Project endpoint (see `SETUP_AZURE.md`)
+
+### Production Environment Variables
+
+For production deployments, **required**:
+```bash
+FLASK_SECRET_KEY=<generate-with: python -c "import secrets; print(secrets.token_hex(32))">
+FLASK_ENV=production
+```
+
+### Optional Environment Variables
+
+See `env.example` for all available options. Common ones:
+
+```bash
+FLASK_PORT=5001              # Port to run on (default: 5001)
+FLASK_HOST=0.0.0.0           # Host to bind to (default: 0.0.0.0)
+LOG_LEVEL=INFO               # Logging level (DEBUG, INFO, WARNING, ERROR)
+DB_PATH=data/review.db       # Database file path
+```
 
 ## Usage
 
 ### Literature Review Mode
-- Ask research questions like "What are the main causes of overdose in Eastern Europe?"
-- The AI will search PubMed, screen papers, and provide relevant results
-- Papers are scored and include detailed rationale for inclusion/exclusion
+1. Click "New Project" to create a research project
+2. Ask a research question (e.g., "What are the main causes of overdose in Eastern Europe?")
+3. The AI will search PubMed, screen papers, and provide relevant results
+4. Papers are scored with detailed rationale for inclusion/exclusion
 
 ### RAG Chat Mode
-- Upload and chat with your own research papers
-- Ask questions about specific papers or research topics
-- Get AI-powered insights from your document collection
+1. Upload your research papers
+2. Ask questions about specific papers or research topics
+3. Get AI-powered insights from your document collection
 
 ### Settings
-- Click the ⚙️ Settings button to:
-  - Configure your OpenAI API key
-  - Set default paper limits
-  - Manage project preferences
+- Click the ⚙️ Settings button to configure your API key
+- Set default paper limits
+- Manage project preferences
 
-## API Key Setup
-
-**Important**: Your API key is stored locally in your browser and never sent to our servers.
-
-1. Get your OpenAI API key from https://platform.openai.com/api-keys
-2. Click the ⚙️ Settings button in the app
-3. Enter your API key and click "Test API Key" to verify
-4. Save settings to start using the application
-
-## Docker Deployment
-
-The application is fully containerized and ready for deployment:
+## Docker Commands
 
 ```bash
-# Build and run
-docker-compose up --build -d
-
-# Check status
-docker-compose ps
+# Start application
+docker-compose up -d
 
 # View logs
 docker-compose logs -f
 
-# Stop
+# Stop application
 docker-compose down
+
+# Rebuild and restart
+docker-compose up --build -d
+
+# Check status
+docker-compose ps
 ```
 
 ## Project Structure
@@ -140,39 +183,113 @@ ai4sr/
 ├── db/              # Database schema and connection
 ├── static/          # Frontend assets (CSS, JS)
 ├── templates/       # HTML templates
-├── data/            # Database and embeddings storage
-└── docker-compose.yml
+├── data/            # Database and embeddings storage (persisted)
+├── logs/            # Application logs (persisted)
+├── run.py           # Application entry point
+├── Dockerfile       # Container definition
+├── docker-compose.yml
+└── nginx/           # Nginx reverse proxy configuration
+    ├── nginx.conf   # Nginx SSL reverse proxy config
+    ├── generate-certs.sh  # Script to generate self-signed certificates
+    └── ssl/         # SSL certificates (gitignored)
 ```
 
-## Environment Variables
+## Troubleshooting
 
-See `env.example` for all available configuration options. Key variables:
+### Docker Issues
 
-### Required (One of the following)
-- `OPENAI_KEY`: Your OpenAI API key (if using OpenAI directly)
-- `AZURE_EXISTING_AIPROJECT_ENDPOINT`: Azure AI Project endpoint (if using Azure)
+**Container won't start:**
+```bash
+# Check logs
+docker-compose logs
 
-### Production (Required in production)
-- `FLASK_SECRET_KEY`: Secret key for Flask sessions (generate with: `python -c "import secrets; print(secrets.token_hex(32))"`)
+# Rebuild from scratch
+docker-compose down
+docker-compose up --build
+```
 
-### Optional
-- `FLASK_HOST`: Host to bind to (default: `0.0.0.0`)
-- `FLASK_PORT`: Port to run on (default: `5001`)
-- `FLASK_DEBUG`: Enable debug mode (default: `False`, disabled in production)
-- `FLASK_ENV`: Environment (`development` or `production`)
-- `LOG_LEVEL`: Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`)
-- `LOG_FILE`: Path to log file (default: `logs/app.log`)
-- `DB_PATH`: Database file path (default: `data/review.db`)
+**Port already in use:**
+- Change `FLASK_PORT` in `.env` to a different port (e.g., `5002`)
+- Update docker-compose.yml nginx port mapping: `"5002:443"`
 
-For Azure AI Projects integration, see `SETUP_AZURE.md`.
+**Health check fails:**
+- Wait 40 seconds for initial startup
+- Check logs: `docker-compose logs -f`
+- Verify API key is set in `.env`
 
-## Requirements
+### API Key Issues
 
-- Python 3.10+
-- Either OpenAI API key OR Azure AI Projects configuration
-- Docker (for containerized deployment)
+**"Configuration validation failed":**
+- Ensure `OPENAI_KEY` or `AZURE_EXISTING_AIPROJECT_ENDPOINT` is set in `.env`
+- Verify the key is valid and has sufficient credits
+- Test in Settings panel after starting the app
 
-**Note**: This application has been migrated to use Azure AI Projects. See `SETUP_AZURE.md` for Azure configuration.
+### Database Issues
+
+**Database errors:**
+```bash
+# Delete and recreate (data will be lost)
+rm data/review.db
+# Restart application - database will auto-initialize
+```
+
+**Permission errors:**
+- Ensure `data/` and `logs/` directories are writable
+- In Docker: volumes should be mounted correctly
+
+### Local Development Issues
+
+**Import errors:**
+```bash
+# Reinstall dependencies
+pip install -r requirements.txt
+pip install -e .
+```
+
+**Port conflicts:**
+- Change `FLASK_PORT` in `.env`
+- Or stop existing process: `lsof -ti:5001 | xargs kill`
+
+## Production Deployment
+
+### Requirements
+1. Set `FLASK_ENV=production` in `.env`
+2. Generate and set `FLASK_SECRET_KEY`:
+   ```bash
+   python -c "import secrets; print(secrets.token_hex(32))"
+   ```
+3. Use a production WSGI server (gunicorn) instead of Flask dev server
+4. Configure proper logging and monitoring
+5. Replace self-signed SSL certificates with trusted certificates
+
+### HTTPS/SSL Configuration
+
+The application uses nginx as a reverse proxy for HTTPS termination. By default, self-signed certificates are provided for development/testing.
+
+**For Production:**
+1. Replace self-signed certificates in `nginx/ssl/` with certificates from a trusted CA:
+   - **Let's Encrypt** (free, automated): Use certbot with nginx plugin
+   - **Custom certificates**: Place `cert.pem` and `key.pem` in `nginx/ssl/`
+2. Update `nginx/nginx.conf` if needed for your certificate setup
+3. Restart containers: `docker-compose restart nginx`
+
+**Self-Signed Certificates (Development):**
+- Certificates are generated automatically via `./nginx/generate-certs.sh`
+- Browsers will show security warnings - this is expected for self-signed certs
+- Click "Advanced" → "Proceed to localhost" to bypass the warning
+
+### Docker Production
+```bash
+# Set production environment
+echo "FLASK_ENV=production" >> .env
+echo "FLASK_SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')" >> .env
+
+# Generate SSL certificates (or use your own)
+./nginx/generate-certs.sh
+
+# Deploy
+docker-compose up -d
+```
 
 ## API Endpoints
 
@@ -199,73 +316,26 @@ For Azure AI Projects integration, see `SETUP_AZURE.md`.
 ### Corpus Generation
 - `POST /api/projects/<id>/generate-corpus` - Generate corpus from queries
 
-## Development Setup
+## Additional Documentation
 
-1. **Clone and install**
-   ```bash
-   git clone <repository-url>
-   cd ai4sr
-   pip install -r requirements.txt
-   pip install -e .
-   ```
+- `QUICK_START.md` - Quick testing and verification guide
+- `SETUP_AZURE.md` - Azure AI Projects configuration
+- `EMBEDDINGS_SETUP.md` - Embeddings configuration details
+- `env.example` - All available environment variables
 
-2. **Set up environment**
-   ```bash
-   cp env.example .env
-   # Edit .env with your configuration
-   ```
+## Development
 
-3. **Run in development mode**
-   ```bash
-   FLASK_ENV=development FLASK_DEBUG=True python run.py
-   ```
+```bash
+# Install development dependencies
+pip install -r requirements.txt
+pip install -e .
 
-4. **Run tests** (when available)
-   ```bash
-   pytest
-   ```
+# Run in development mode
+FLASK_ENV=development FLASK_DEBUG=True python run.py
 
-## Troubleshooting
-
-### Docker Issues
-- Ensure Docker Desktop is running
-- Check logs: `docker-compose logs -f`
-- Rebuild if needed: `docker-compose up --build`
-- Check health: `curl http://localhost:5001/api/health`
-
-### API Key Issues
-- Verify your OpenAI API key is valid
-- Check you have sufficient API credits
-- Test the key in the Settings panel
-- Check logs for authentication errors
-
-### Database Issues
-- The database is automatically initialized on first run
-- Data persists in the `./data` directory
-- If schema issues occur, delete `data/review.db` and restart
-
-### Port Already in Use
-- Change `FLASK_PORT` in `.env` to use a different port
-- Or stop the existing process: `lsof -ti:5001 | xargs kill`
-
-### Logging Issues
-- Check `logs/app.log` for detailed error messages
-- Set `LOG_LEVEL=DEBUG` for verbose logging
-- Ensure `logs/` directory exists and is writable
-
-### Production Deployment
-- Set `FLASK_ENV=production` or `ENVIRONMENT=production`
-- **Required**: Set `FLASK_SECRET_KEY` to a secure random value
-- Debug mode is automatically disabled in production
-- Use a production WSGI server (gunicorn) instead of Flask's dev server
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test with Docker
-5. Submit a pull request
+# Run tests
+python test_app.py
+```
 
 ## License
 

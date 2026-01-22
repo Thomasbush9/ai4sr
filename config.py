@@ -20,6 +20,8 @@ IS_PRODUCTION = os.getenv("FLASK_ENV", "").lower() == "production" or os.getenv(
 AZURE_EXISTING_AIPROJECT_ENDPOINT = os.getenv("AZURE_EXISTING_AIPROJECT_ENDPOINT")
 AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-small")
+AZURE_OPENAI_DIRECT_ENDPOINT = os.getenv("AZURE_OPENAI_DIRECT_ENDPOINT")  # Optional: direct endpoint for embeddings
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
 AZURE_AGENT_NAME = os.getenv("AZURE_AGENT_NAME", "ai4sr-agent")
 
 # Flask Configuration

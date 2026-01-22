@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy dependency files
+# Copy dependency files first (for better layer caching)
 COPY pyproject.toml requirements.txt ./
 
 # Install Python dependencies
@@ -24,21 +24,22 @@ RUN pip install --upgrade pip && \
 COPY . .
 
 # Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV FLASK_APP=webapp.app:main
-ENV FLASK_ENV=production
-ENV FLASK_HOST=0.0.0.0
-ENV FLASK_PORT=5001
+ENV PYTHONUNBUFFERED=1 \
+    FLASK_APP=run.py \
+    FLASK_ENV=production \
+    FLASK_HOST=0.0.0.0 \
+    FLASK_PORT=5001
 
-# Create data directory
-RUN mkdir -p /app/data
+# Create required directories
+RUN mkdir -p /app/data /app/logs && \
+    chmod 755 /app/data /app/logs
 
 # Expose port
 EXPOSE 5001
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:5001/api/health || exit 1
 
-# Run the application
-CMD ["python", "-m", "webapp.app"]
+# Run the application using run.py (handles DB init and validation)
+CMD ["python", "run.py"]

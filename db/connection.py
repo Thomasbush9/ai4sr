@@ -1,10 +1,11 @@
 import sqlite3
 import sys
 from pathlib import Path
+from typing import Optional
 from . import schema_path
 from config import DB_PATH
 
-def connect(db_path:Path | None=None)-> sqlite3.Connection:
+def connect(db_path: Optional[Path] = None) -> sqlite3.Connection:
     path = db_path or DB_PATH
     # Ensure parent directory exists
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -12,7 +13,7 @@ def connect(db_path:Path | None=None)-> sqlite3.Connection:
     con.execute("PRAGMA foreign_keys = ON;")
     return con
 
-def init_db(db_path:Path | None = None) -> None:
+def init_db(db_path: Optional[Path] = None) -> None:
     """Initialize the database with schema. Safe to call multiple times."""
     path = db_path or DB_PATH
     

@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from azure.identity import DefaultAzureCredential, ClientSecretCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import PromptAgentDefinition
+from openai import AzureOpenAI
 
 # Use RLock (reentrant lock) to avoid deadlock when get_azure_client() calls get_project_client()
 _azure_client_lock = threading.RLock()
@@ -14,6 +15,9 @@ _agents: Dict[str, Any] = {}  # Cache for multiple agents
 
 # Thread-local storage for clients to avoid issues in Flask's threading model
 _thread_local = threading.local()
+
+# Cache for direct Azure OpenAI client (for embeddings)
+_embedding_client = None
 
 # Agent definitions with specialized instructions
 AGENT_DEFINITIONS = {
@@ -156,6 +160,120 @@ def get_project_client() -> AIProjectClient:
             raise
 
     return _project_client
+
+
+def _extract_direct_endpoint(ai_project_endpoint: str) -> str:
+    """Extract direct Azure OpenAI endpoint from AI Projects endpoint.
+    
+    Converts: https://xxx.services.ai.azure.com/api/projects/...
+    To:      https://xxx.cognitiveservices.azure.com
+    
+    Args:
+        ai_project_endpoint: AI Projects endpoint URL
+        
+    Returns:
+        Direct Azure OpenAI endpoint URL
+    """
+    # First, check if explicitly set in environment
+    direct_endpoint = os.getenv("AZURE_OPENAI_DIRECT_ENDPOINT")
+    if direct_endpoint:
+        return direct_endpoint.rstrip('/')
+    
+    # Try to extract the base domain and convert to cognitiveservices
+    if "services.ai.azure.com" in ai_project_endpoint:
+        # Extract the subdomain (e.g., "oai-ai4sr" from "https://oai-ai4sr.services.ai.azure.com/...")
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(ai_project_endpoint)
+            hostname = parsed.hostname
+            if hostname:
+                subdomain = hostname.split('.')[0]
+                return f"https://{subdomain}.cognitiveservices.azure.com"
+        except Exception:
+            pass
+    
+    # Last resort: try to construct from AI Projects endpoint
+    # This is a best-effort conversion
+    try:
+        return ai_project_endpoint.replace("services.ai.azure.com", "cognitiveservices.azure.com").split("/api/")[0].rstrip('/')
+    except Exception:
+        # If all else fails, raise an error with helpful message
+        raise ValueError(
+            "Could not determine direct Azure OpenAI endpoint. "
+            "Please set AZURE_OPENAI_DIRECT_ENDPOINT environment variable "
+            "(e.g., https://oai-ai4sr.cognitiveservices.azure.com)"
+        )
+
+
+def get_embedding_client():
+    """Get direct Azure OpenAI client for embeddings (bypasses AI Projects API).
+    
+    This uses the direct Azure OpenAI endpoint which is required for embeddings
+    when the deployment is a GlobalStandard type.
+    
+    Returns:
+        AzureOpenAI client configured for direct endpoint access
+    """
+    global _embedding_client
+    
+    # Check thread-local storage first
+    if hasattr(_thread_local, 'embedding_client') and _thread_local.embedding_client is not None:
+        return _thread_local.embedding_client
+    
+    # Check global cache
+    if _embedding_client is not None:
+        return _embedding_client
+    
+    with _azure_client_lock:
+        # Double-check after acquiring lock
+        if _embedding_client is not None:
+            return _embedding_client
+        
+        try:
+            # Get the direct endpoint
+            ai_project_endpoint = os.getenv("AZURE_EXISTING_AIPROJECT_ENDPOINT")
+            if not ai_project_endpoint:
+                raise ValueError("AZURE_EXISTING_AIPROJECT_ENDPOINT not set")
+            
+            direct_endpoint = _extract_direct_endpoint(ai_project_endpoint)
+            print(f"DEBUG: Creating direct Azure OpenAI client for embeddings at {direct_endpoint}", flush=True)
+            
+            # Get credential
+            credential = get_credential()
+            
+            # Create direct Azure OpenAI client
+            # For embeddings, we use the direct endpoint, not the AI Projects endpoint
+            # Get token synchronously for the token provider
+            token_scope = "https://cognitiveservices.azure.com/.default"
+            
+            def get_token():
+                """Get Azure AD token for Cognitive Services."""
+                return credential.get_token(token_scope).token
+            
+            _embedding_client = AzureOpenAI(
+                azure_endpoint=direct_endpoint,
+                azure_ad_token_provider=get_token,
+                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+            )
+            
+            # Store in thread-local for Flask
+            try:
+                from flask import has_request_context
+                if has_request_context():
+                    _thread_local.embedding_client = _embedding_client
+            except ImportError:
+                pass
+            
+            print(f"DEBUG: Direct Azure OpenAI client created successfully", flush=True)
+            return _embedding_client
+            
+        except Exception as e:
+            print(f"ERROR: Failed to create direct Azure OpenAI client: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            # Fall back to AI Projects client if direct client fails
+            print(f"DEBUG: Falling back to AI Projects client for embeddings", flush=True)
+            return get_azure_client()
 
 
 def get_or_create_agent(agent_type: str = "default"):
@@ -426,11 +544,34 @@ def chat_completion(
         raise Exception(error_msg) from e
 
 
+def get_openai_embedding_client():
+    """Get OpenAI client for embeddings (fallback when Azure unavailable).
+    
+    Returns:
+        OpenAI client configured with API key
+        
+    Raises:
+        ValueError: If OPENAI_KEY not set
+        ImportError: If openai package not installed
+    """
+    openai_key = os.getenv("OPENAI_KEY")
+    if not openai_key:
+        raise ValueError("OPENAI_KEY not set - cannot use OpenAI embeddings fallback")
+    
+    try:
+        from openai import OpenAI
+        return OpenAI(api_key=openai_key)
+    except ImportError:
+        raise ImportError("openai package not installed. Install with: pip install openai")
+
+
 def get_embedding(
     text: str,
     deployment_name: Optional[str] = None
 ) -> List[float]:
-    """Get embedding for a single text using Azure OpenAI.
+    """Get embedding for a single text using Azure OpenAI, with OpenAI fallback.
+    
+    Tries Azure first, falls back to OpenAI if Azure fails.
     
     Args:
         text: Text to embed
@@ -440,16 +581,22 @@ def get_embedding(
         List of embedding values
         
     Raises:
-        Exception: If embedding generation fails
+        Exception: If embedding generation fails from both providers
     """
+    if not text or not text.strip():
+        raise ValueError("Text cannot be empty for embedding")
+    
+    if deployment_name is None:
+        deployment_name = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-small")
+    
+    # Try Azure first
     try:
-        if deployment_name is None:
-            deployment_name = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-small")
-
-        if not text or not text.strip():
-            raise ValueError("Text cannot be empty for embedding")
-
-        client = get_azure_client()
+        # Use direct Azure OpenAI client for embeddings (works better with GlobalStandard deployments)
+        try:
+            client = get_embedding_client()
+        except Exception as e:
+            print(f"DEBUG: Failed to get direct embedding client, falling back to AI Projects client: {e}", flush=True)
+            client = get_azure_client()
 
         response = client.embeddings.create(
             model=deployment_name,
@@ -457,20 +604,56 @@ def get_embedding(
         )
 
         if not response.data or len(response.data) == 0:
-            raise ValueError("Empty response from embedding API")
+            raise ValueError("Empty response from Azure embedding API")
 
+        print(f"DEBUG: Successfully got embedding from Azure", flush=True)
         return response.data[0].embedding
-    except Exception as e:
-        error_msg = f"Failed to get embedding: {str(e)}"
-        print(f"ERROR: {error_msg}")
-        raise Exception(error_msg) from e
+        
+    except Exception as azure_error:
+        error_str = str(azure_error)
+        print(f"DEBUG: Azure embedding failed: {error_str}", flush=True)
+        
+        # Check if we should try OpenAI fallback
+        openai_key = os.getenv("OPENAI_KEY")
+        if not openai_key:
+            # No fallback available, raise the Azure error
+            raise Exception(f"Azure embedding failed and OPENAI_KEY not set for fallback: {error_str}") from azure_error
+        
+        # Try OpenAI fallback
+        try:
+            print(f"DEBUG: Attempting OpenAI embedding fallback", flush=True)
+            openai_client = get_openai_embedding_client()
+            
+            # Use same model name for OpenAI (text-embedding-3-small works with OpenAI too)
+            openai_model = deployment_name if deployment_name else "text-embedding-3-small"
+            
+            response = openai_client.embeddings.create(
+                model=openai_model,
+                input=text
+            )
+            
+            if not response.data or len(response.data) == 0:
+                raise ValueError("Empty response from OpenAI embedding API")
+            
+            print(f"DEBUG: Successfully got embedding from OpenAI (fallback)", flush=True)
+            return response.data[0].embedding
+            
+        except Exception as openai_error:
+            # Both failed, raise with helpful message
+            raise Exception(
+                f"Both Azure and OpenAI embeddings failed. "
+                f"Azure error: {error_str}. "
+                f"OpenAI error: {str(openai_error)}"
+            ) from openai_error
 
 
 def get_embeddings_batch(
     texts: List[str],
     deployment_name: Optional[str] = None
 ) -> List[List[float]]:
-    """Get embeddings for multiple texts using Azure OpenAI (batch processing).
+    """Get embeddings for multiple texts using Azure OpenAI, with OpenAI fallback.
+    
+    Tries Azure first, falls back to OpenAI if Azure fails.
     
     Args:
         texts: List of texts to embed
@@ -480,24 +663,35 @@ def get_embeddings_batch(
         List of embedding vectors (one per input text)
         
     Raises:
-        Exception: If embedding generation fails
+        Exception: If embedding generation fails from both providers
     """
+    if not texts:
+        return []
+
+    if deployment_name is None:
+        deployment_name = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-small")
+
+    # Filter out empty texts
+    valid_texts = [t for t in texts if t and t.strip()]
+    if len(valid_texts) != len(texts):
+        print(f"DEBUG: Filtered out {len(texts) - len(valid_texts)} empty texts", flush=True)
+
+    if not valid_texts:
+        raise ValueError("No valid texts provided for embedding")
+
+    # Try Azure first
     try:
-        if not texts:
-            return []
-
-        if deployment_name is None:
-            deployment_name = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-small")
-
-        # Filter out empty texts
-        valid_texts = [t for t in texts if t and t.strip()]
-        if len(valid_texts) != len(texts):
-            print(f"DEBUG: Filtered out {len(texts) - len(valid_texts)} empty texts")
-
-        if not valid_texts:
-            raise ValueError("No valid texts provided for embedding")
-
-        client = get_azure_client()
+        # Use direct Azure OpenAI client for embeddings (works better with GlobalStandard deployments)
+        # Try direct client first, fall back to AI Projects client if it fails
+        client = None
+        use_direct_client = True
+        try:
+            client = get_embedding_client()
+            print(f"DEBUG: Using direct Azure OpenAI client for embeddings", flush=True)
+        except Exception as e:
+            print(f"DEBUG: Failed to get direct embedding client, falling back to AI Projects client: {e}", flush=True)
+            client = get_azure_client()
+            use_direct_client = False
 
         try:
             response = client.embeddings.create(
@@ -505,25 +699,57 @@ def get_embeddings_batch(
                 input=valid_texts
             )
         except Exception as api_error:
-            # Provide helpful error message for 404 (deployment not found)
-            if "404" in str(api_error) or "NotFound" in str(type(api_error).__name__):
-                error_msg = (
-                    f"Embedding deployment '{deployment_name}' not found. "
-                    f"Please check that the deployment exists in your Azure AI Project. "
-                    f"Set AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME to the correct deployment name."
-                )
-                print(f"ERROR: {error_msg}")
-                raise Exception(error_msg) from api_error
-            raise
+            # If direct client failed with 404, try AI Projects client as fallback
+            if use_direct_client and ("404" in str(api_error) or "NotFound" in str(type(api_error).__name__)):
+                print(f"DEBUG: Direct client failed with 404, trying AI Projects client as fallback", flush=True)
+                try:
+                    client = get_azure_client()
+                    response = client.embeddings.create(
+                        model=deployment_name,
+                        input=valid_texts
+                    )
+                except Exception as fallback_error:
+                    raise Exception(f"Azure embedding failed: {str(fallback_error)}") from fallback_error
+            else:
+                raise
 
         if not response.data or len(response.data) != len(valid_texts):
             raise ValueError(f"Expected {len(valid_texts)} embeddings, got {len(response.data) if response.data else 0}")
 
+        print(f"DEBUG: Successfully got {len(valid_texts)} embeddings from Azure", flush=True)
         return [item.embedding for item in response.data]
-    except Exception as e:
-        # Don't re-raise if it's already a helpful error message
-        if "Embedding deployment" in str(e):
-            raise
-        error_msg = f"Failed to get batch embeddings: {str(e)}"
-        print(f"ERROR: {error_msg}")
-        raise Exception(error_msg) from e
+        
+    except Exception as azure_error:
+        error_str = str(azure_error)
+        print(f"DEBUG: Azure batch embedding failed: {error_str}", flush=True)
+        
+        # Check if we should try OpenAI fallback
+        openai_key = os.getenv("OPENAI_KEY")
+        if not openai_key:
+            raise Exception(f"Azure embedding failed and OPENAI_KEY not set for fallback: {error_str}") from azure_error
+        
+        # Try OpenAI fallback
+        try:
+            print(f"DEBUG: Attempting OpenAI embedding fallback for {len(valid_texts)} texts", flush=True)
+            openai_client = get_openai_embedding_client()
+            
+            # Use same model name for OpenAI
+            openai_model = deployment_name if deployment_name else "text-embedding-3-small"
+            
+            response = openai_client.embeddings.create(
+                model=openai_model,
+                input=valid_texts
+            )
+            
+            if not response.data or len(response.data) != len(valid_texts):
+                raise ValueError(f"Expected {len(valid_texts)} embeddings from OpenAI, got {len(response.data) if response.data else 0}")
+            
+            print(f"DEBUG: Successfully got {len(valid_texts)} embeddings from OpenAI (fallback)", flush=True)
+            return [item.embedding for item in response.data]
+            
+        except Exception as openai_error:
+            raise Exception(
+                f"Both Azure and OpenAI embeddings failed. "
+                f"Azure error: {error_str}. "
+                f"OpenAI error: {str(openai_error)}"
+            ) from openai_error
