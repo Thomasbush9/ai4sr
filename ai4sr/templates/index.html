@@ -1,0 +1,489 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>AI4SR Literature Review</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header class="header">
+    <div class="container">
+      <div class="header-content">
+        <div class="brand">
+          <div class="brand-icon">📚</div>
+          <div class="brand-text">
+            <h1>AI4SR</h1>
+            <span class="brand-subtitle">Literature Review Assistant</span>
+          </div>
+        </div>
+        
+        <div class="mode-selector">
+          <div class="mode-tabs">
+            <label class="mode-tab">
+              <input type="radio" name="mod" value="literature" checked>
+              <span class="tab-content">
+                <span class="tab-icon">🔍</span>
+                <span class="tab-text">Literature Review</span>
+              </span>
+            </label>
+            <label class="mode-tab">
+              <input type="radio" name="mod" value="rag">
+              <span class="tab-content">
+                <span class="tab-icon">💬</span>
+                <span class="tab-text">RAG Chat</span>
+              </span>
+            </label>
+            <label class="mode-tab">
+              <input type="radio" name="mod" value="pico">
+              <span class="tab-content">
+                <span class="tab-icon">📋</span>
+                <span class="tab-text">PICO Review</span>
+              </span>
+            </label>
+            <label class="mode-tab">
+              <input type="radio" name="mod" value="screening">
+              <span class="tab-content">
+                <span class="tab-icon">✅</span>
+                <span class="tab-text">Screening</span>
+              </span>
+            </label>
+          </div>
+        </div>
+        
+        <div class="header-controls" id="header-controls" style="display: none;">
+          <div class="header-control-group">
+            <label for="header-project-id" class="header-control-label">Project</label>
+            <input id="header-project-id" type="text" placeholder="Project name" class="header-control-input" />
+          </div>
+          <div class="header-control-group">
+            <label for="header-paper-limit" class="header-control-label">Papers</label>
+            <input id="header-paper-limit" type="number" value="10" min="1" max="50" class="header-control-input header-limit-input" />
+          </div>
+        </div>
+        
+        <div class="session-info">
+          <button id="sidebar-toggle-header" class="sidebar-toggle-header" title="Toggle Sidebar">
+            <span class="hamburger-icon">☰</span>
+            <span class="hamburger-text">Menu</span>
+          </button>
+          <button id="help-shortcuts" class="help-button" title="Keyboard Shortcuts">
+            <span class="help-icon">⌨️</span>
+            <span class="help-text">Shortcuts</span>
+          </button>
+          <button id="settings-button" class="settings-button" title="Settings">
+            <span class="settings-icon">⚙️</span>
+            <span class="settings-text">Settings</span>
+          </button>
+          <button id="export-chat" class="export-button" title="Export Chat History">
+            <span class="export-icon">📥</span>
+            <span class="export-text">Export</span>
+          </button>
+          <span id="conv-meta" class="session-meta"></span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-content">
+    <div class="container">
+      <!-- Sidebar -->
+      <div id="sidebar" class="sidebar">
+        <div class="sidebar-header">
+          <h3>Chat History</h3>
+          <div class="sidebar-actions">
+            <button id="create-project" class="create-project-btn" title="Create New Project">
+              <span class="create-icon">➕</span>
+            </button>
+            <button id="delete-project" class="delete-project-btn" title="Delete Current Project" style="display: none;">
+              <span class="delete-icon">🗑️</span>
+            </button>
+            <button id="sidebar-toggle" class="sidebar-toggle" title="Toggle Sidebar">
+              <span class="toggle-icon">←</span>
+            </button>
+          </div>
+        </div>
+        <div class="sidebar-content">
+          <div class="sidebar-actions-bottom">
+            <button id="db-viewer" class="db-viewer-button-sidebar" title="View Database">
+              <span class="db-icon">📊</span>
+              <span class="db-text">View Database</span>
+            </button>
+          </div>
+          <div class="sidebar-search">
+            <input type="text" id="sidebar-search" placeholder="Search projects..." class="search-input">
+          </div>
+          <div id="sidebar-projects" class="sidebar-projects">
+            <!-- Projects will be loaded here -->
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-container">
+        <div id="chat" class="chat">
+          <div id="chat-messages" class="chat-messages"></div>
+          
+          <!-- Literature Review header buttons (inside chat) -->
+          <div id="literature-header-buttons" class="literature-header-buttons" style="display: none;">
+            <button id="view-project-papers" class="literature-button literature-button-secondary" style="display: none;">📄 View Project Papers</button>
+            <button id="view-project-pico" class="literature-button literature-button-secondary" style="display: none;">📋 View PICO</button>
+          </div>
+          
+          <!-- Composer for RAG mode -->
+          <div id="rag-composer" class="chat-composer">
+            <div class="input-wrapper">
+              <input id="input" type="text" placeholder="Ask about literature, research questions, or search for papers..." class="message-input" />
+              <button id="send" class="send-button">
+                <span class="send-icon">→</span>
+                <span class="send-text">Send</span>
+              </button>
+            </div>
+          </div>
+          
+          <!-- Composer for Literature Review mode -->
+          <div id="literature-composer" class="chat-composer" style="display: none;">
+            <div class="input-wrapper">
+              <input id="literature-input" type="text" placeholder="Search for papers, ask research questions, or explore literature..." class="message-input" />
+              <button id="literature-send" class="send-button">
+                <span class="send-icon">→</span>
+                <span class="send-text">Send</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Keep hidden inputs for backward compatibility -->
+        <input id="project_id" type="hidden" />
+        <input id="paper_limit" type="hidden" />
+        <input id="literature-project-id" type="hidden" />
+        <input id="literature-paper-limit" type="hidden" />
+
+        <!-- PICO input section (for PICO mode) -->
+        <div id="pico-input-section" class="input-section pico-section" style="display: none;">
+          <div class="input-controls">
+            <div class="control-group">
+              <label for="pico-project-id" class="control-label">Project</label>
+              <input id="pico-project-id" type="text" placeholder="Enter project name or ID" class="control-input project-input" />
+            </div>
+          </div>
+          
+          <div class="pico-form">
+            <h3 class="pico-form-title">📋 PICO Framework</h3>
+            <div class="pico-grid">
+              <div class="pico-field">
+                <label for="pico-population" class="pico-label">Population <span class="required">*</span></label>
+                <input id="pico-population" type="text" placeholder="e.g., adults with heart failure" class="pico-input" required />
+              </div>
+              <div class="pico-field">
+                <label for="pico-intervention" class="pico-label">Intervention</label>
+                <input id="pico-intervention" type="text" placeholder="e.g., SGLT2 inhibitors" class="pico-input" />
+              </div>
+              <div class="pico-field">
+                <label for="pico-comparison" class="pico-label">Comparison</label>
+                <input id="pico-comparison" type="text" placeholder="e.g., placebo" class="pico-input" />
+              </div>
+              <div class="pico-field">
+                <label for="pico-outcome" class="pico-label">Outcome</label>
+                <input id="pico-outcome" type="text" placeholder="e.g., hospitalization" class="pico-input" />
+              </div>
+              <div class="pico-field">
+                <label for="pico-study-design" class="pico-label">Study Design</label>
+                <input id="pico-study-design" type="text" placeholder="e.g., RCT, cohort, observational" class="pico-input" />
+              </div>
+              <div class="pico-field pico-field-full">
+                <label for="pico-extra-terms" class="pico-label">Extra Terms (comma-separated)</label>
+                <input id="pico-extra-terms" type="text" placeholder="e.g., cardiovascular, diabetes" class="pico-input" />
+              </div>
+            </div>
+            <div class="pico-actions">
+              <button id="save-pico" class="pico-button pico-button-primary">💾 Save PICO</button>
+              <button id="expand-pico" class="pico-button pico-button-secondary" disabled>🔍 Expand PICO</button>
+              <button id="generate-corpus" class="pico-button pico-button-success" disabled>📚 Generate Corpus</button>
+            </div>
+            <div id="pico-status" class="pico-status"></div>
+          </div>
+        </div>
+
+        <!-- Screening input section (for Screening mode) -->
+        <div id="screening-input-section" class="input-section screening-section" style="display: none;">
+          <div class="input-controls">
+            <div class="control-group">
+              <label for="screening-project-id" class="control-label">Project</label>
+              <input id="screening-project-id" type="text" placeholder="Enter project name or ID" class="control-input project-input" />
+            </div>
+          </div>
+          
+          <div class="screening-workspace">
+            <div class="screening-header">
+              <div class="screening-header-buttons">
+                <button id="start-screening" class="screening-button screening-button-primary">▶️ Start Screening</button>
+                <button id="cold-start-button" class="screening-button screening-button-secondary" style="display: none;">🧊 Cold-Start Agent</button>
+                <button id="review-included-button" class="screening-button screening-button-secondary" style="display: none;">📊 Review Included Papers</button>
+                <button id="view-results-header-button" class="screening-button screening-button-secondary" style="display: none;">📋 View Included Papers</button>
+                <button id="auto-label-all-button" class="screening-button screening-button-secondary" style="display: none;">🤖 Auto-Label All</button>
+              </div>
+              <div id="screening-status" class="screening-status"></div>
+            </div>
+            
+            <div id="screening-progress" class="screening-progress" style="display: none;">
+              <div class="progress-bar-container">
+                <div class="progress-bar">
+                  <div id="progress-bar-fill" class="progress-bar-fill"></div>
+                </div>
+                <div class="progress-text">
+                  <span id="progress-labeled">0</span> / <span id="progress-total">0</span> papers labeled
+                </div>
+              </div>
+              <div class="screening-counters">
+                <span class="counter-item">
+                  <strong>Labeled:</strong> <span id="counter-labeled">0</span> / <span id="counter-total">0</span>
+                </span>
+                <span class="counter-item">
+                  <strong>Included:</strong> <span id="counter-included">0</span> | <strong>Excluded:</strong> <span id="counter-excluded">0</span>
+                </span>
+              </div>
+              <div id="screening-message" class="screening-message"></div>
+            </div>
+            
+            <div id="papers-container" class="papers-container" style="display: none;">
+              <!-- Paper cards will be inserted here -->
+            </div>
+            
+            <div id="screening-actions" class="screening-actions" style="display: none;">
+              <button id="submit-batch" class="screening-button screening-button-submit" disabled>💾 Submit Batch</button>
+            </div>
+            
+            <div id="completion-state" class="completion-state" style="display: none;">
+              <div class="completion-message">
+                <h3>🎉 Screening Completed!</h3>
+                <p>All papers have been reviewed and labeled.</p>
+              </div>
+              <div id="classifier-status" class="classifier-status" style="display: none;">
+                <p id="classifier-status-text"></p>
+              </div>
+              <div class="completion-actions">
+                <button id="auto-label-button" class="screening-button screening-button-secondary" style="display: none;">🤖 Auto-Label Remaining Papers</button>
+                <button id="final-review-button" class="screening-button screening-button-primary">📊 Start Agent Review</button>
+                <button id="view-results-button" class="screening-button screening-button-secondary">📋 View Included Papers</button>
+              </div>
+            </div>
+            
+            <!-- Results View -->
+            <div id="results-view" class="results-view" style="display: none;">
+              <div class="results-header">
+                <h2>📋 Included Papers & Summaries</h2>
+                <div class="results-header-actions">
+                  <div class="export-dropdown">
+                    <button id="export-button" class="screening-button screening-button-secondary">
+                      <span class="export-icon">📥</span>
+                      <span class="export-text">Export</span>
+                      <span class="export-arrow">▼</span>
+                    </button>
+                    <div id="export-menu" class="export-menu" style="display: none;">
+                      <button class="export-option" data-format="csv">📊 CSV</button>
+                      <button class="export-option" data-format="json">📄 JSON</button>
+                      <button class="export-option" data-format="bibtex">📚 BibTeX</button>
+                      <button class="export-option" data-format="ris">📋 RIS</button>
+                      <button class="export-option" data-format="pdf">📑 PDF</button>
+                    </div>
+                  </div>
+                  <button id="close-results-button" class="screening-button screening-button-secondary">← Back to Screening</button>
+                </div>
+              </div>
+              <div id="results-tabs" class="results-tabs">
+                <button class="results-tab active" data-tab="papers">📄 Papers</button>
+                <button class="results-tab" data-tab="overview">📊 Overview</button>
+              </div>
+              <div id="results-content" class="results-content">
+                <div id="papers-tab-content" class="results-tab-content active">
+                  <div id="included-papers-list" class="included-papers-list">
+                    <!-- Papers will be loaded here -->
+                  </div>
+                </div>
+                <div id="overview-tab-content" class="results-tab-content">
+                  <div id="project-overview" class="project-overview">
+                    <!-- Overview will be loaded here -->
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Floating sidebar toggle button -->
+  <button id="sidebar-toggle-float" class="sidebar-toggle-float" title="Toggle Sidebar">
+    <span class="float-icon">☰</span>
+  </button>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal">
+    <div class="modal-content settings-modal-content">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <button class="modal-close" id="settings-close">&times;</button>
+      </div>
+      <div class="settings-container">
+        <div class="settings-sidebar">
+          <button class="settings-category active" data-category="profile">Profile</button>
+          <button class="settings-category" data-category="appearance">Appearance</button>
+          <button class="settings-category" data-category="application">Application</button>
+          <button class="settings-category" data-category="advanced">Advanced</button>
+        </div>
+        <div class="settings-content">
+          <!-- Profile Settings -->
+          <div class="settings-category-content active" id="profile-settings">
+            <div class="settings-section">
+              <h3>Azure Configuration</h3>
+              <div class="form-group">
+                <label for="azure-endpoint">Azure AI Project Endpoint:</label>
+                <input type="text" id="azure-endpoint" placeholder="https://..." autocomplete="off" />
+                <small>Azure AI Project endpoint URL</small>
+              </div>
+              <div class="form-group">
+                <label for="azure-openai-deployment">Azure OpenAI Deployment Name:</label>
+                <input type="text" id="azure-openai-deployment" placeholder="gpt-4o-mini" autocomplete="off" />
+                <small>Name of the OpenAI deployment in Azure</small>
+              </div>
+              <div class="form-group">
+                <label for="azure-embedding-deployment">Azure OpenAI Embedding Deployment Name:</label>
+                <input type="text" id="azure-embedding-deployment" placeholder="text-embedding-3-small" autocomplete="off" />
+                <small>Name of the embedding deployment in Azure</small>
+              </div>
+              <div class="form-group">
+                <label for="azure-agent-name">Azure Agent Name:</label>
+                <input type="text" id="azure-agent-name" placeholder="ai4sr-agent" autocomplete="off" />
+                <small>Default agent name for Azure AI Projects</small>
+              </div>
+              <div class="form-group">
+                <label for="azure-tenant-id">Microsoft Tenant ID:</label>
+                <input type="text" id="azure-tenant-id" placeholder="..." autocomplete="off" />
+                <small>Azure AD tenant ID for authentication</small>
+              </div>
+              <div class="form-group">
+                <label for="azure-client-id">Microsoft Client ID:</label>
+                <input type="text" id="azure-client-id" placeholder="..." autocomplete="off" />
+                <small>Azure AD application (client) ID</small>
+              </div>
+              <div class="form-group">
+                <label for="azure-client-secret" class="api-key-label">Microsoft Client Secret:</label>
+                <div class="input-with-toggle">
+                  <input type="password" id="azure-client-secret" placeholder="..." autocomplete="off" />
+                  <button type="button" id="toggle-azure-secret" class="toggle-visibility" title="Show/Hide Secret">👁️</button>
+                </div>
+                <small>Azure AD client secret (stored locally in browser)</small>
+              </div>
+              <div class="form-group">
+                <button id="test-azure-config" class="test-button">Test Azure Configuration</button>
+                <span id="azure-status" class="api-status"></span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Appearance Settings -->
+          <div class="settings-category-content" id="appearance-settings">
+            <div class="settings-section">
+              <h3>Appearance</h3>
+              <div class="form-group">
+                <label for="theme-select">Theme:</label>
+                <select id="theme-select">
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                </select>
+                <small>Choose your preferred theme</small>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Application Settings -->
+          <div class="settings-category-content" id="application-settings">
+            <div class="settings-section">
+              <h3>Application Settings</h3>
+              <div class="form-group">
+                <label for="default-papers">Default Paper Limit:</label>
+                <input type="number" id="default-papers" value="10" min="1" max="50" />
+                <small>Default number of papers to fetch in literature review</small>
+              </div>
+              <div class="form-group">
+                <label for="default-project">Default Project Name:</label>
+                <input type="text" id="default-project" placeholder="Enter default project name" />
+                <small>Default project name for new conversations</small>
+              </div>
+              
+              <h3 style="margin-top: 2rem;">Screening Configuration</h3>
+              <div class="form-group">
+                <label for="screening-batch-size">Screening Batch Size:</label>
+                <input type="number" id="screening-batch-size" value="10" min="1" max="100" />
+                <small>Number of papers to show per batch during screening (1-100)</small>
+              </div>
+              <div class="form-group">
+                <label for="screening-strategy">Screening Strategy:</label>
+                <select id="screening-strategy">
+                  <option value="relevance">Relevance</option>
+                  <option value="uncertainty">Uncertainty</option>
+                </select>
+                <small>Strategy for selecting papers: relevance (most likely to include first) or uncertainty (least certain first)</small>
+              </div>
+              <div class="form-group">
+                <label for="screening-classifier">Classifier Type:</label>
+                <select id="screening-classifier">
+                  <option value="logistic">Logistic Regression</option>
+                  <option value="svm">SVM</option>
+                  <option value="random_forest" selected>Random Forest</option>
+                  <option value="naive_bayes">Naive Bayes</option>
+                </select>
+                <small>Machine learning classifier for active learning</small>
+              </div>
+              <div class="form-group">
+                <label for="cold-start-batch-size">Cold Start Batch Size:</label>
+                <input type="number" id="cold-start-batch-size" value="10" min="1" max="50" />
+                <small>Number of papers to label initially using cold-start agent (1-50)</small>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Advanced Settings -->
+          <div class="settings-category-content" id="advanced-settings">
+            <div class="settings-section">
+              <h3>Auto-labeling Configuration</h3>
+              <div class="form-group">
+                <label for="auto-label-include-threshold">Include Threshold:</label>
+                <input type="number" id="auto-label-include-threshold" value="0.8" min="0" max="1" step="0.1" />
+                <small>Probability threshold above which papers are auto-labeled as INCLUDE (0.0-1.0)</small>
+              </div>
+              <div class="form-group">
+                <label for="auto-label-exclude-threshold">Exclude Threshold:</label>
+                <input type="number" id="auto-label-exclude-threshold" value="0.2" min="0" max="1" step="0.1" />
+                <small>Probability threshold below which papers are auto-labeled as EXCLUDE (0.0-1.0)</small>
+              </div>
+              
+              <h3 style="margin-top: 2rem;">Export Preferences</h3>
+              <div class="form-group">
+                <label for="default-export-format">Default Export Format:</label>
+                <select id="default-export-format">
+                  <option value="json" selected>JSON</option>
+                  <option value="csv">CSV</option>
+                  <option value="bibtex">BibTeX</option>
+                  <option value="ris">RIS</option>
+                  <option value="pdf">PDF</option>
+                </select>
+                <small>Default format for exporting included papers</small>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="save-settings" class="save-button">Save Settings</button>
+        <button id="cancel-settings" class="cancel-button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='main.js') }}"></script>
+</body>
+</html>
+

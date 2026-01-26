@@ -1,0 +1,60 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.env
+.env.local
+.env.*.local
+
+# API Keys and Secrets
+*.key
+*.pem
+*secret*
+*api_key*
+*openai*
+
+# Database files
+data/
+data/*.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Test files (optional - uncomment if you want to exclude tests)
+# test_*.py
+# tests/
+
+# Notebooks (optional - uncomment if you want to exclude notebooks)
+# notebooks/
+# *.ipynb
+
+# Migration scripts (optional - uncomment if you want to exclude)
+# migrate_*.py
+
+# Backup files
+*.backup
+*.bak
+*~

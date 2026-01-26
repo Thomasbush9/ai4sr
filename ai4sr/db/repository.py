@@ -364,15 +364,9 @@ def get_pico_expansion(con: sqlite3.Connection, project_id: int) -> Optional[Dic
 def bulk_insert_unscreened(con: sqlite3.Connection, project_id: int, documents: List[Dict]) -> int:
     """Bulk insert documents with UNSCREENED status. Returns count inserted."""
     count = 0
-    errors = 0
-    
-    # Check existing papers count before insertion
-    cur = con.execute("SELECT COUNT(*) FROM papers WHERE project_id = ?", (project_id,))
-    existing_count_before = cur.fetchone()[0]
-    
     for doc in documents:
         # Calculate fingerprint
-        title = doc.get("title") or ""
+        title = doc.get("title", "")
         year = doc.get("year")
         authors = doc.get("authors")
         first_author = _first_author(authors)
@@ -404,28 +398,15 @@ def bulk_insert_unscreened(con: sqlite3.Connection, project_id: int, documents: 
             upsert_paper(con, project_id, paper)
             count += 1
         except Exception as e:
-            errors += 1
             # Log error but continue - might be duplicate constraint
-            if errors <= 5:  # Log first 5 errors to avoid spam
-                title_str = title[:50] if title else "None"
-                print(f"DEBUG: Error inserting paper '{title_str}...': {e}", flush=True)
+            print(f"DEBUG: Error inserting paper '{title[:50]}...': {e}")
             # Check if paper already exists (might be a duplicate)
             # If it's a constraint violation, that's okay - paper already exists
             if "UNIQUE constraint" not in str(e) and "constraint" not in str(e).lower():
                 # Only print non-constraint errors
-                if errors <= 5:
-                    import traceback
-                    traceback.print_exc()
+                import traceback
+                traceback.print_exc()
             continue
-    
-    # Check actual inserted count (upsert_paper uses INSERT OR IGNORE, so some may not actually insert)
-    cur = con.execute("SELECT COUNT(*) FROM papers WHERE project_id = ?", (project_id,))
-    existing_count_after = cur.fetchone()[0]
-    actually_inserted = existing_count_after - existing_count_before
-    
-    if actually_inserted < count or errors > 0:
-        print(f"DEBUG: Database insertion: attempted {len(documents)}, processed {count}, "
-              f"errors {errors}, actually inserted {actually_inserted} new papers", flush=True)
     
     return count
 

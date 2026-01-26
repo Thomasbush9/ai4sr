@@ -243,7 +243,6 @@ class RAGAgent:
                 # Save to disk
                 self._save_vector_db()
                 print(f"DEBUG: Successfully added {len(paper_metadata)} papers to vector database")
-                return True  # Success
             except Exception as e:
                 # Check if it's a deployment not found error (expected)
                 is_deployment_error = "Embedding deployment" in str(e) or "404" in str(e) or "NotFound" in str(e)
@@ -259,12 +258,8 @@ class RAGAgent:
                     import traceback
                     traceback.print_exc()
                 # Don't raise - allow papers to be accessed from DB directly
-                return False  # Failed but papers still accessible
         elif skipped_count > 0:
             print(f"DEBUG: All {skipped_count} papers were duplicates, nothing to add")
-            return True  # Success (nothing to do)
-        
-        return True  # Success (no papers to process)
     
     def remove_papers(self, paper_ids: List[int], project_id: int):
         """Remove papers from the vector database.

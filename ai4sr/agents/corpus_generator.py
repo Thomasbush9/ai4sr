@@ -118,7 +118,6 @@ async def fetch_openalex_async(query: str, max_results: Optional[int] = None) ->
                 if not results:
                     break
                 
-                parse_errors = 0
                 for work in results:
                     if len(records) >= max_results:
                         break
@@ -135,13 +134,7 @@ async def fetch_openalex_async(query: str, max_results: Optional[int] = None) ->
                         parsed.pop("related_works", None)
                         records.append(parsed)
                     except Exception as e:
-                        parse_errors += 1
-                        if parse_errors <= 5:  # Log first 5 errors to avoid spam
-                            print(f"DEBUG: Failed to parse OpenAlex work (title: {work.get('title', 'Unknown')[:50]}): {e}", flush=True)
                         continue
-                
-                if parse_errors > 0:
-                    print(f"DEBUG: OpenAlex page {page}: parsed {len(results) - parse_errors}/{len(results)} works successfully", flush=True)
                 
                 if len(records) >= max_results:
                     break
@@ -238,16 +231,10 @@ def deduplicate_documents(documents: List[Dict]) -> List[Dict]:
     
     from db.repository import _fingerprint, _first_author
     
-    duplicates_by_doi = 0
-    duplicates_by_pmid = 0
-    duplicates_by_pmcid = 0
-    duplicates_by_fingerprint = 0
-    
     for doc in documents:
         # Primary: DOI
         doi = doc.get("doi")
         if doi and doi in seen_dois:
-            duplicates_by_doi += 1
             continue
         if doi:
             seen_dois.add(doi)
@@ -255,7 +242,6 @@ def deduplicate_documents(documents: List[Dict]) -> List[Dict]:
         # Secondary: PMID
         pmid = doc.get("pmid")
         if pmid and pmid in seen_pmids:
-            duplicates_by_pmid += 1
             continue
         if pmid:
             seen_pmids.add(pmid)
@@ -263,7 +249,6 @@ def deduplicate_documents(documents: List[Dict]) -> List[Dict]:
         # Tertiary: PMCID
         pmcid = doc.get("pmcid")
         if pmcid and pmcid in seen_pmcids:
-            duplicates_by_pmcid += 1
             continue
         if pmcid:
             seen_pmcids.add(pmcid)
@@ -276,16 +261,11 @@ def deduplicate_documents(documents: List[Dict]) -> List[Dict]:
         fingerprint = _fingerprint(title, year, first_author)
         
         if fingerprint and fingerprint in seen_fingerprints:
-            duplicates_by_fingerprint += 1
             continue
         if fingerprint:
             seen_fingerprints.add(fingerprint)
         
         deduplicated.append(doc)
-    
-    if duplicates_by_doi + duplicates_by_pmid + duplicates_by_pmcid + duplicates_by_fingerprint > 0:
-        print(f"DEBUG: Deduplication removed {duplicates_by_doi + duplicates_by_pmid + duplicates_by_pmcid + duplicates_by_fingerprint} duplicates "
-              f"(DOI: {duplicates_by_doi}, PMID: {duplicates_by_pmid}, PMCID: {duplicates_by_pmcid}, fingerprint: {duplicates_by_fingerprint})", flush=True)
     
     return deduplicated
 
@@ -349,10 +329,6 @@ def generate_corpus(
         if isinstance(openalex_records, Exception):
             print(f"ERROR: OpenAlex fetch failed: {openalex_records}")
             openalex_records = []
-        
-        # Add debug logging
-        print(f"DEBUG: Fetched {len(pubmed_records)} papers from PubMed", flush=True)
-        print(f"DEBUG: Fetched {len(openalex_records)} papers from OpenAlex", flush=True)
     finally:
         # Only close if we created a new loop
         try:
@@ -428,8 +404,6 @@ def generate_corpus(
     # Deduplicate (removes cross-source duplicates)
     deduplicated = deduplicate_documents(records_with_fallback)
     
-    print(f"DEBUG: After deduplication: {len(deduplicated)} unique papers (from {len(records_with_fallback)} total)", flush=True)
-    
     # Count unique per source after deduplication (for reporting)
     pubmed_unique = sum(1 for doc in deduplicated if doc.get("source") == "pubmed")
     openalex_unique = sum(1 for doc in deduplicated if doc.get("source") == "openalex")
@@ -478,21 +452,18 @@ def generate_corpus(
             """, (project_id,))
             
             papers = []
-            # Fix: Convert tuples to dicts
-            cols = [c[0] for c in cur.description]
             for row in cur.fetchall():
-                row_dict = dict(zip(cols, row))
                 papers.append({
-                    'id': row_dict['id'],
-                    'title': row_dict.get('title', ''),
-                    'abstract': row_dict.get('abstract', ''),
-                    'authors': row_dict.get('authors', ''),
-                    'year': row_dict.get('year'),
-                    'venue': row_dict.get('venue', ''),
-                    'doi': row_dict.get('doi', ''),
-                    'status': row_dict.get('status', 'UNSCREENED'),
-                    'score': row_dict.get('score'),
-                    'rationale': row_dict.get('rationale', ''),
+                    'id': row['id'],
+                    'title': row.get('title', ''),
+                    'abstract': row.get('abstract', ''),
+                    'authors': row.get('authors', ''),
+                    'year': row.get('year'),
+                    'venue': row.get('venue', ''),
+                    'doi': row.get('doi', ''),
+                    'status': row.get('status', 'UNSCREENED'),
+                    'score': row.get('score'),
+                    'rationale': row.get('rationale', ''),
                     'project_id': project_id
                 })
             
@@ -500,11 +471,8 @@ def generate_corpus(
                 # Add papers to RAG agent (batch processing)
                 # The add_papers method will skip duplicates automatically
                 # Note: UNSCREENED papers are added here, but will be removed if excluded during screening
-                embeddings_success = rag_agent.add_papers(papers, project_id)
-                if embeddings_success:
-                    print(f"DEBUG: Successfully added {len(papers)} papers to RAG embeddings", flush=True)
-                else:
-                    print(f"DEBUG: Added {len(papers)} papers to database, but embedding generation failed (papers still accessible)", flush=True)
+                rag_agent.add_papers(papers, project_id)
+                print(f"DEBUG: Successfully added {len(papers)} papers to RAG embeddings", flush=True)
                 print(f"DEBUG: Note: Papers will be synced (added/removed) based on screening results", flush=True)
             else:
                 print(f"DEBUG: No papers found for RAG update", flush=True)
