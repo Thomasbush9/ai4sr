@@ -22,10 +22,70 @@ const sidebarSearch = document.getElementById("sidebar-search");
 const deleteProjectBtn = document.getElementById("delete-project");
 const createProjectBtn = document.getElementById("create-project");
 
+// Auth elements
+const loginBtn = document.getElementById("login-btn");
+const logoutBtn = document.getElementById("logout-btn");
+const authUserInfo = document.getElementById("auth-user-info");
+const userName = document.querySelector(".user-name");
+
 function escapeHtml(str) {
   return str.replace(/[&<>"']/g, s => ({
     "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
   }[s]));
+}
+
+async function checkAuthStatus() {
+  try {
+    const response = await fetch("/auth/user");
+    const data = await response.json();
+    
+    if (data.authenticated) {
+      showLoggedInUser(data.user);
+    } else {
+      showLoggedOutUser();
+    }
+  } catch (error) {
+    console.error("Failed to check auth status:", error);
+    showLoggedOutUser();
+  }
+}
+
+function showLoggedInUser(user) {
+  if (loginBtn) loginBtn.style.display = "none";
+  if (authUserInfo) authUserInfo.style.display = "flex";
+  if (userName) userName.textContent = user.name || user.email;
+}
+
+function showLoggedOutUser() {
+  if (loginBtn) loginBtn.style.display = "block";
+  if (authUserInfo) authUserInfo.style.display = "none";
+  if (userName) userName.textContent = "";
+}
+
+async function handleLogin() {
+  try {
+    const response = await fetch("/auth/login");
+    const data = await response.json();
+    
+    if (data.auth_url) {
+      window.location.href = data.auth_url;
+    } else {
+      console.error("No auth URL received");
+      alert("Failed to initiate login. Please check configuration.");
+    }
+  } catch (error) {
+    console.error("Login failed:", error);
+    alert("Login failed: " + error.message);
+  }
+}
+
+async function handleLogout() {
+  try {
+    await fetch("/auth/logout");
+    showLoggedOutUser();
+  } catch (error) {
+    console.error("Logout failed:", error);
+  }
 }
 
 function formatMessage(text) {
@@ -3139,4 +3199,16 @@ initDeleteProject();
 initPicoMode();
 initDbViewer();
 initExport();
+
+// Add auth event listeners
+if (loginBtn) {
+  loginBtn.addEventListener('click', handleLogin);
+}
+if (logoutBtn) {
+  logoutBtn.addEventListener('click', handleLogout);
+}
+
+// Check auth status on page load
+checkAuthStatus();
+
 startConversation();
