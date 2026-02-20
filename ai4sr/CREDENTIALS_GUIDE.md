@@ -6,8 +6,8 @@
 Your Flask server needs credentials to call Azure AI APIs.
 
 **Options:**
-- **Option A: Service Principal** (Production) - Set in `.env`
-- **Option B: `az login`** (Local dev only) - One-time CLI login
+- **Option A: Service Principal** (Production & Docker) - Set in `.env`
+- **Option B: `az login`** (Local dev only, outside containers) - One-time CLI login
 
 ### 2. **User → Your App** (Frontend)
 End users authenticate via Microsoft login in the browser.
@@ -18,6 +18,8 @@ End users authenticate via Microsoft login in the browser.
 ## Setup for Server → Azure
 
 ### Option A: Service Principal (Recommended)
+
+**Required for Docker containers!** Service principal credentials work automatically in containers without any manual authentication.
 
 1. **Create a Service Principal** in Azure Portal:
    - Go to Azure Active Directory → App registrations → New registration
@@ -38,19 +40,25 @@ End users authenticate via Microsoft login in the browser.
 
 4. **Add to `.env`**:
    ```bash
-   AZURE_TENANT_ID=your-tenant-id
-   AZURE_CLIENT_ID=your-client-id
-   AZURE_CLIENT_SECRET=your-client-secret
+   MICROSOFT_TENANT_ID=your-tenant-id
+   MICROSOFT_CLIENT_ID=your-client-id
+   MICROSOFT_CLIENT_SECRET=your-client-secret
    ```
 
+   **Note:** Docker containers automatically load these from `.env` - no `az login` needed!
+
 ### Option B: Azure CLI (Local Dev Only)
+
+**Only works outside Docker containers!** For local development on your machine.
 
 Just run once:
 ```bash
 az login
 ```
 
-This stores credentials locally. **NOT for production!**
+This stores credentials locally. **NOT for production or Docker containers!**
+
+**Note:** If running in Docker, use Service Principal (Option A) instead.
 
 ---
 

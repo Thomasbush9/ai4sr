@@ -1,8 +1,9 @@
 import os
 import threading
+import shutil
 from typing import Optional, List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from azure.identity import DefaultAzureCredential, ClientSecretCredential
+from azure.identity import DefaultAzureCredential, ClientSecretCredential, AzureCliCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import PromptAgentDefinition
 from openai import AzureOpenAI
@@ -98,7 +99,7 @@ Always respond in valid JSON format when requested."""
 
 
 def get_credential():
-    """Get Azure credential - use service principal if available, else DefaultAzureCredential."""
+    """Get Azure credential - use service principal if available, else try Azure CLI (az login), else DefaultAzureCredential."""
     tenant_id = os.getenv("MICROSOFT_TENANT_ID")
     client_id = os.getenv("MICROSOFT_CLIENT_ID")
     client_secret = os.getenv("MICROSOFT_CLIENT_SECRET")
@@ -110,6 +111,11 @@ def get_credential():
             client_secret=client_secret
         )
     else:
+        # Try Azure CLI first (from az login) if available
+        if shutil.which("az") is not None:
+            return AzureCliCredential()
+        
+        # Fall back to DefaultAzureCredential (tries multiple credential sources)
         return DefaultAzureCredential()
 
 

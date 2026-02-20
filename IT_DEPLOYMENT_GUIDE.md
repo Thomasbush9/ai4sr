@@ -46,9 +46,24 @@ cp env.example .env
 ```
 
 Edit `.env` and set required variables:
+
+**Required for Azure AI Projects:**
+```bash
+# Azure AI Project endpoint
+AZURE_EXISTING_AIPROJECT_ENDPOINT=https://your-project.services.ai.azure.com/api/projects/your-project-id
+
+# Azure Service Principal credentials (works automatically in containers, no az login needed)
+MICROSOFT_TENANT_ID=your-tenant-id
+MICROSOFT_CLIENT_ID=your-client-id
+MICROSOFT_CLIENT_SECRET=your-client-secret
+```
+
+**Optional (fallback for embeddings if Azure unavailable):**
 ```bash
 OPENAI_KEY=sk-your-api-key-here
 ```
+
+**Note:** Service principal credentials are automatically loaded from `.env` in Docker containers - no `az login` required! See `CREDENTIALS_GUIDE.md` for detailed setup instructions.
 
 ### Step 3: Generate SSL Certificates
 ```bash
