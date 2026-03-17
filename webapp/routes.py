@@ -163,9 +163,28 @@ def get_conversation_messages(conversation_id):
 
 @api_bp.get("/settings")
 def get_settings():
-    """Get current runtime Azure settings (secrets masked)."""
+    """Get current active settings (runtime settings override .env values)."""
+    import os
     import settings_store
-    settings = dict(settings_store.load())
+
+    SETTING_KEYS = [
+        "AZURE_EXISTING_AIPROJECT_ENDPOINT",
+        "MICROSOFT_TENANT_ID",
+        "MICROSOFT_CLIENT_ID",
+        "MICROSOFT_CLIENT_SECRET",
+        "AZURE_OPENAI_DEPLOYMENT_NAME",
+        "AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME",
+        "AZURE_AGENT_NAME",
+        "AZURE_OPENAI_DIRECT_ENDPOINT",
+        "OPENAI_KEY",
+    ]
+    runtime = settings_store.load()
+    # Merge: runtime settings take priority, then env vars
+    settings = {}
+    for key in SETTING_KEYS:
+        val = runtime.get(key) or os.getenv(key)
+        if val:
+            settings[key] = val
     # Mask secrets for display
     for key in ("MICROSOFT_CLIENT_SECRET", "OPENAI_KEY"):
         if key in settings and settings[key]:
