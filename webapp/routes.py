@@ -161,6 +161,52 @@ def get_conversation_messages(conversation_id):
             "created_at": m["created_at"]
         } for m in messages])
 
+@api_bp.get("/settings")
+def get_settings():
+    """Get current runtime Azure settings (secrets masked)."""
+    import settings_store
+    settings = dict(settings_store.load())
+    # Mask secrets for display
+    for key in ("MICROSOFT_CLIENT_SECRET", "OPENAI_KEY"):
+        if key in settings and settings[key]:
+            v = settings[key]
+            settings[key] = v[:4] + "****" + v[-4:] if len(v) > 8 else "****"
+    return jsonify(settings)
+
+
+@api_bp.post("/settings")
+@handle_errors
+def save_settings():
+    """Save runtime Azure settings and reset cached clients."""
+    import settings_store
+    from agents.azure_config import reset_clients
+
+    data = request.get_json(force=True)
+    ALLOWED_KEYS = {
+        "AZURE_EXISTING_AIPROJECT_ENDPOINT",
+        "MICROSOFT_TENANT_ID",
+        "MICROSOFT_CLIENT_ID",
+        "MICROSOFT_CLIENT_SECRET",
+        "AZURE_OPENAI_DEPLOYMENT_NAME",
+        "AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME",
+        "AZURE_AGENT_NAME",
+        "AZURE_OPENAI_DIRECT_ENDPOINT",
+        "OPENAI_KEY",
+    }
+    # Merge with existing settings so partial saves don't wipe unrelated fields
+    existing = settings_store.load()
+    for k, v in data.items():
+        if k not in ALLOWED_KEYS:
+            continue
+        if v:  # set non-empty values
+            existing[k] = v
+        elif k in existing:  # clear explicitly emptied values
+            del existing[k]
+    settings_store.save(existing)
+    reset_clients()
+    return jsonify({"success": True})
+
+
 @api_bp.post("/test-azure-config")
 def test_azure_config():
     """Test if Azure OpenAI configuration is valid"""

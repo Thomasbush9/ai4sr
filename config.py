@@ -38,7 +38,7 @@ if not FLASK_SECRET_KEY:
 MICROSOFT_CLIENT_ID = os.getenv("MICROSOFT_CLIENT_ID")
 MICROSOFT_CLIENT_SECRET = os.getenv("MICROSOFT_CLIENT_SECRET")
 MICROSOFT_TENANT_ID = os.getenv("MICROSOFT_TENANT_ID")
-MICROSOFT_REDIRECT_URI = os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:5000/auth/callback")
+MICROSOFT_REDIRECT_URI = os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:5001/auth/callback")
 
 # OpenAlex API configuration
 OPENALEX_EMAIL = os.getenv("OPENALEX_EMAIL", "noreply@example.com")
@@ -67,11 +67,22 @@ def validate_required_config():
     errors = []
     
     # Check if either OpenAI key OR Azure configuration is present
+    # Also check runtime settings file (user may configure via UI instead of .env)
     has_openai_key = bool(os.getenv("OPENAI_KEY"))
     has_azure_config = bool(AZURE_EXISTING_AIPROJECT_ENDPOINT)
-    
+
+    # Check runtime settings as fallback
     if not has_openai_key and not has_azure_config:
-        errors.append("Either OPENAI_KEY or AZURE_EXISTING_AIPROJECT_ENDPOINT must be set")
+        try:
+            import settings_store
+            has_openai_key = bool(settings_store.get("OPENAI_KEY"))
+            has_azure_config = bool(settings_store.get("AZURE_EXISTING_AIPROJECT_ENDPOINT"))
+        except Exception:
+            pass
+
+    if not has_openai_key and not has_azure_config:
+        # Warn but don't block startup — user can configure via Settings UI
+        print("WARNING: No API keys configured yet. Configure via Settings in the web UI, or set OPENAI_KEY / AZURE_EXISTING_AIPROJECT_ENDPOINT in .env", file=sys.stderr)
     
     # In production, require secret key
     if IS_PRODUCTION and not os.getenv("FLASK_SECRET_KEY"):

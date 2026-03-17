@@ -23,6 +23,9 @@ RUN pip install --upgrade pip && \
 # Copy application code
 COPY . .
 
+# Install the package itself (needed for internal imports via pyproject.toml)
+RUN pip install --no-cache-dir -e .
+
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     FLASK_APP=run.py \
@@ -41,5 +44,7 @@ EXPOSE 5001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:5001/api/health || exit 1
 
-# Run the application using run.py (handles DB init and validation)
-CMD ["python", "run.py"]
+# Initialize database at build time (schema only, safe to re-run)
+# At runtime, run.py also calls init_db() as a safety net
+# Use gunicorn for production; run.py for development
+CMD ["sh", "-c", "python -c 'from db.connection import init_db; init_db()' && gunicorn --bind 0.0.0.0:5001 --workers 2 --timeout 300 --access-logfile - 'webapp:create_app()'"]

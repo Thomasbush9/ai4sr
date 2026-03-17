@@ -99,33 +99,14 @@ function formatMessage(text) {
     .replace(/^/, '<p>')
     .replace(/$/, '</p>');
 }
-function addMessage(role, text, mode = null) {
+function addMessage(role, text) {
   const el = document.createElement("div");
   el.className = `msg ${role}`;
-  
+
   const timestamp = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-  const currentMode = mode || document.querySelector('input[name="mod"]:checked').value;
-  
-  // Add mode indicator for assistant messages
-  let modeIndicator = '';
-  if (role === 'assistant' && currentMode) {
-    let modeIcon, modeName;
-    if (currentMode === 'literature') {
-      modeIcon = '🔍';
-      modeName = 'Literature Review';
-    } else if (currentMode === 'pico') {
-      modeIcon = '📋';
-      modeName = 'PICO Review';
-    } else {
-      modeIcon = '💬';
-      modeName = 'RAG Chat';
-    }
-    modeIndicator = `<div class="mode-indicator">${modeIcon} ${modeName}</div>`;
-  }
   
   el.innerHTML = `
     <div class="bubble">
-      ${modeIndicator}
       <div class="message-content">${formatMessage(escapeHtml(text))}</div>
       <div class="message-time">${timestamp}</div>
     </div>
@@ -155,22 +136,9 @@ function addPaperTable(papers) {
   el.className = "msg assistant";
   
   const timestamp = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-  const currentMode = document.querySelector('input[name="mod"]:checked').value;
-  let modeIcon, modeName;
-  if (currentMode === 'literature') {
-    modeIcon = '🔍';
-    modeName = 'Literature Review';
-  } else if (currentMode === 'pico') {
-    modeIcon = '📋';
-    modeName = 'PICO Review';
-  } else {
-    modeIcon = '💬';
-    modeName = 'RAG Chat';
-  }
-  
+
   let tableHTML = `
     <div class="bubble">
-      <div class="mode-indicator">${modeIcon} ${modeName}</div>
       <div class="papers-header">
         <h3>📄 Research Papers Found</h3>
         <span class="papers-count">${papers.length} papers</span>
@@ -324,7 +292,7 @@ function showLoadingIndicator() {
   loadingEl.className = "loading-indicator show";
   loadingEl.innerHTML = `
     <div class="loading-spinner"></div>
-    <span id="loading-text">Starting literature review...</span>
+    <span id="loading-text">Processing request...</span>
   `;
   chatMessages.appendChild(loadingEl);
   chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -340,7 +308,7 @@ function updateLoadingMessage(loadingEl, message) {
 
 function startProgressUpdates(loadingEl) {
   const stages = [
-    "Starting literature review...",
+    "Processing request...",
     "Expanding query with keywords...",
     "Generating search concepts...",
     "Building PubMed query...",
@@ -376,14 +344,13 @@ function showTypingIndicator() {
   el.className = "msg assistant typing-indicator";
   el.innerHTML = `
     <div class="bubble">
-      <div class="mode-indicator">💬 ${document.querySelector('input[name="mod"]:checked').value === 'literature' ? 'Literature Review' : 'RAG Chat'}</div>
       <div class="typing-content">
         <div class="typing-dots">
           <span></span>
           <span></span>
           <span></span>
         </div>
-        <span class="typing-text">Assistant is typing...</span>
+        <span class="typing-text">Thinking...</span>
       </div>
     </div>
   `;
@@ -403,17 +370,13 @@ function exportChatHistory() {
     const role = msg.classList.contains('user') ? 'User' : 'Assistant';
     const content = msg.querySelector('.message-content');
     const time = msg.querySelector('.message-time');
-    const modeIndicator = msg.querySelector('.mode-indicator');
-    
+
     let text = content ? content.textContent.trim() : '';
-    if (modeIndicator) {
-      text = `[${modeIndicator.textContent}] ${text}`;
-    }
     
     return `${role} (${time ? time.textContent : 'Unknown time'}): ${text}`;
   }).join('\n\n');
   
-  const blob = new Blob([`AI4SR Literature Review Chat Export\nSession #${conversationId || 'Unknown'}\nExported: ${new Date().toLocaleString()}\n\n${messages}`], { type: 'text/plain' });
+  const blob = new Blob([`AI4SR Chat Export\nSession #${conversationId || 'Unknown'}\nExported: ${new Date().toLocaleString()}\n\n${messages}`], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -439,7 +402,7 @@ function showKeyboardShortcuts() {
     </div>`
   ).join('');
   
-  addMessage("assistant", `⌨️ **Keyboard Shortcuts**\n\n${shortcutsHTML}\n\n*Tip: You can switch between Literature Review and RAG Chat modes anytime - your conversation history will be preserved!*`);
+  addMessage("assistant", `⌨️ **Keyboard Shortcuts**\n\n${shortcutsHTML}\n\n*Tip: You can switch between RAG Chat, PICO Review, and Screening modes anytime - your conversation history will be preserved!*`);
 }
 
 // Dark Mode Functions
@@ -483,9 +446,7 @@ function handleKeyboardShortcuts(e) {
 async function startConversation() {
   const mod = document.querySelector('input[name="mod"]:checked').value;
   let projectName;
-  if (mod === "literature") {
-    projectName = document.getElementById("literature-project-id")?.value?.trim() || "default";
-  } else if (mod === "pico") {
+  if (mod === "pico") {
     projectName = document.getElementById("pico-project-id")?.value?.trim() || "default";
   } else if (mod === "screening") {
     projectName = document.getElementById("screening-project-id")?.value?.trim() || "default";
@@ -505,8 +466,8 @@ async function startConversation() {
   }
   
   let modeName;
-  if (mod === 'literature') modeName = 'Literature Review';
-  else if (mod === 'pico') modeName = 'PICO Review';
+  if (mod === 'pico') modeName = 'PICO Review';
+  else if (mod === 'screening') modeName = 'Screening';
   else modeName = 'RAG Chat';
   convMeta.textContent = `Session #${conversationId} · ${modeName}`;
   
@@ -517,70 +478,48 @@ async function startConversation() {
     deleteProjectBtn.style.display = 'none';
   }
   
-  // Update literature buttons if in literature mode
-  if (mod === "literature") {
-    updateLiteratureButtons();
-  }
-  
   // Refresh sidebar to show new conversation
   loadSidebarProjects();
   
-  // Only show welcome message if chat is empty
-  if (chat.children.length === 0) {
-    if (mod === 'literature') {
-      addMessage("assistant", `🔍 **Literature Review Mode Active**\n\nI can help you:\n• Find relevant papers for your research topic\n• Analyze and summarize research findings\n• Generate comprehensive literature reviews\n• Screen papers based on your criteria\n\nWhat research question or topic would you like me to explore?`, mod);
-    } else if (mod === 'pico') {
-      addMessage("assistant", `📋 **PICO Review Mode Active**\n\nSystematic review workflow:\n1. Fill in the PICO framework below\n2. Click "Save PICO" to store your review question\n3. Click "Expand PICO" to generate search queries\n4. Click "Generate Corpus" to fetch papers from PubMed and OpenAlex\n\nStart by entering your Population (required) and other PICO components.`, mod);
-    } else {
-      addMessage("assistant", `💬 **RAG Chat Mode Active**\n\nI can help you:\n• Answer questions about your existing documents\n• Search through your uploaded papers\n• Provide insights from your research collection\n\nWhat would you like to know about your documents?`, mod);
+  // Show welcome message only on first load (no messages yet)
+  if (chatMessages.children.length === 0) {
+    if (mod === 'rag') {
+      addMessage("assistant", `**RAG Chat Mode**\n\nI can help you:\n• Answer questions about your existing documents\n• Search through your uploaded papers\n• Provide insights from your research collection\n\nWhat would you like to know about your documents?`);
     }
-  } else {
-    // Add mode switch notification
-    let modeName;
-    if (mod === 'literature') modeName = 'Literature Review';
-    else if (mod === 'pico') modeName = 'PICO Review';
-    else modeName = 'RAG Chat';
-    addMessage("assistant", `Mode switched to **${modeName}**. How can I help you?`, mod);
+    // PICO and Screening have their own UI — no welcome message needed
   }
+  // No "mode switched" messages — the active tab is the indicator
 }
 
 // Show/hide input sections based on mode
 function updateInputSection() {
   const mod = document.querySelector('input[name="mod"]:checked').value;
   const ragComposer = document.getElementById("rag-composer");
-  const literatureComposer = document.getElementById("literature-composer");
-  const literatureHeaderButtons = document.getElementById("literature-header-buttons");
   const picoSection = document.getElementById("pico-input-section");
   const screeningSection = document.getElementById("screening-input-section");
   
   if (mod === "pico") {
     // Hide chat composers, show PICO section
     if (ragComposer) ragComposer.style.display = "none";
-    if (literatureComposer) literatureComposer.style.display = "none";
-    if (literatureHeaderButtons) literatureHeaderButtons.style.display = "none";
     if (headerControls) headerControls.style.display = "none";
     if (picoSection) picoSection.style.display = "block";
     if (screeningSection) screeningSection.style.display = "none";
     // Sync project ID
-    const projectId = headerProjectInput?.value || 
-                     document.getElementById("project_id")?.value || 
-                     document.getElementById("literature-project-id")?.value || "";
+    const projectId = headerProjectInput?.value ||
+                     document.getElementById("project_id")?.value || "";
     if (projectId && document.getElementById("pico-project-id")) {
       document.getElementById("pico-project-id").value = projectId;
     }
   } else if (mod === "screening") {
     // Hide chat composers, show screening section
     if (ragComposer) ragComposer.style.display = "none";
-    if (literatureComposer) literatureComposer.style.display = "none";
-    if (literatureHeaderButtons) literatureHeaderButtons.style.display = "none";
     if (headerControls) headerControls.style.display = "none";
     if (picoSection) picoSection.style.display = "none";
     if (screeningSection) screeningSection.style.display = "block";
     // Sync project ID
-    const projectId = headerProjectInput?.value || 
-                     document.getElementById("project_id")?.value || 
-                     document.getElementById("pico-project-id")?.value ||
-                     document.getElementById("literature-project-id")?.value || "";
+    const projectId = headerProjectInput?.value ||
+                     document.getElementById("project_id")?.value ||
+                     document.getElementById("pico-project-id")?.value || "";
     if (projectId && document.getElementById("screening-project-id")) {
       document.getElementById("screening-project-id").value = projectId;
       // Check button visibility if project exists
@@ -591,46 +530,16 @@ function updateInputSection() {
     }
     // Initialize screening mode
     initScreeningMode();
-  } else if (mod === "literature") {
-    // Show literature composer and header controls
-    if (ragComposer) ragComposer.style.display = "none";
-    if (literatureComposer) literatureComposer.style.display = "block";
-    if (literatureHeaderButtons) literatureHeaderButtons.style.display = "flex";
-    if (headerControls) headerControls.style.display = "flex";
-    if (picoSection) picoSection.style.display = "none";
-    if (screeningSection) screeningSection.style.display = "none";
-    // Sync project ID and paper limit
-    const projectId = headerProjectInput?.value || 
-                     document.getElementById("project_id")?.value || 
-                     document.getElementById("pico-project-id")?.value ||
-                     document.getElementById("screening-project-id")?.value || "";
-    if (projectId) {
-      if (headerProjectInput) headerProjectInput.value = projectId;
-      if (document.getElementById("literature-project-id")) {
-        document.getElementById("literature-project-id").value = projectId;
-      }
-    }
-    const paperLimit = headerPaperLimitInput?.value || 
-                      document.getElementById("paper_limit")?.value || "10";
-    if (headerPaperLimitInput) headerPaperLimitInput.value = paperLimit;
-    if (document.getElementById("literature-paper-limit")) {
-      document.getElementById("literature-paper-limit").value = paperLimit;
-    }
-    // Update literature mode button visibility
-    updateLiteratureButtons();
   } else {
     // RAG mode - show RAG composer and header controls
     if (ragComposer) ragComposer.style.display = "block";
-    if (literatureComposer) literatureComposer.style.display = "none";
-    if (literatureHeaderButtons) literatureHeaderButtons.style.display = "none";
     if (headerControls) headerControls.style.display = "flex";
     if (picoSection) picoSection.style.display = "none";
     if (screeningSection) screeningSection.style.display = "none";
     // Sync project ID
     const picoProjectId = document.getElementById("pico-project-id")?.value || "";
     const screeningProjectId = document.getElementById("screening-project-id")?.value || "";
-    const literatureProjectId = document.getElementById("literature-project-id")?.value || "";
-    const projectId = picoProjectId || screeningProjectId || literatureProjectId || "";
+    const projectId = picoProjectId || screeningProjectId || "";
     if (projectId) {
       if (headerProjectInput) headerProjectInput.value = projectId;
       if (document.getElementById("project_id")) {
@@ -645,14 +554,8 @@ async function sendMessage() {
   const mod = document.querySelector('input[name="mod"]:checked').value;
   
   // Get the correct input field based on mode
-  let textInput, text;
-  if (mod === "literature") {
-    textInput = document.getElementById("literature-input");
-    text = textInput?.value.trim() || "";
-  } else {
-    textInput = input;
-    text = input.value.trim();
-  }
+  let textInput = input;
+  let text = input.value.trim();
   
   if (!text || !conversationId) return;
 
@@ -661,32 +564,16 @@ async function sendMessage() {
     return;
   }
 
-  // Get project ID and paper limit based on mode
-  let pid, paperLimit;
-  if (mod === "literature") {
-    pid = (headerProjectInput?.value || document.getElementById("literature-project-id")?.value || "").trim();
-    paperLimit = Math.max(1, Math.min(50, parseInt(headerPaperLimitInput?.value || document.getElementById("literature-paper-limit")?.value || "10")));
-  } else {
-    pid = (headerProjectInput?.value || document.getElementById("project_id")?.value || "").trim();
-    paperLimit = Math.max(1, Math.min(50, parseInt(headerPaperLimitInput?.value || document.getElementById("paper_limit")?.value || "10")));
-  }
+  // Get project ID and paper limit
+  let pid = (headerProjectInput?.value || document.getElementById("project_id")?.value || "").trim();
+  let paperLimit = Math.max(1, Math.min(50, parseInt(headerPaperLimitInput?.value || document.getElementById("paper_limit")?.value || "10")));
 
   addMessage("user", text);
-  const sendButton = mod === "literature" ? document.getElementById("literature-send") : sendBtn;
-  sendButton.disabled = true;
+  sendBtn.disabled = true;
   textInput.value = "";
 
-  // Show appropriate indicator based on mode
-  let loadingIndicator = null;
-  let typingIndicator = null;
-  let progressInterval = null;
-  
-  if (mod === "literature") {
-    loadingIndicator = showLoadingIndicator();
-    progressInterval = startProgressUpdates(loadingIndicator);
-  } else {
-    typingIndicator = showTypingIndicator();
-  }
+  // Show typing indicator
+  let typingIndicator = showTypingIndicator();
 
   try {
     // Get API key from localStorage if available
@@ -706,18 +593,10 @@ async function sendMessage() {
     });
     const data = await res.json();
     
-    // Hide indicators
-    if (loadingIndicator) {
-      if (progressInterval) {
-        clearInterval(progressInterval);
-      }
-      hideLoadingIndicator(loadingIndicator);
-    }
-    if (typingIndicator) {
-      hideTypingIndicator(typingIndicator);
-    }
-    
-    // Handle structured response for literature mode
+    // Hide typing indicator
+    hideTypingIndicator(typingIndicator);
+
+    // Handle structured response with papers
     if (data.papers && data.papers.length > 0) {
       addMessage("assistant", data.message);
       addPaperTable(data.papers);
@@ -726,20 +605,11 @@ async function sendMessage() {
       addMessage("assistant", data.reply || data.message);
     }
   } catch (error) {
-    // Hide indicators on error
-    if (loadingIndicator) {
-      if (progressInterval) {
-        clearInterval(progressInterval);
-      }
-      hideLoadingIndicator(loadingIndicator);
-    }
-    if (typingIndicator) {
-      hideTypingIndicator(typingIndicator);
-    }
+    // Hide typing indicator on error
+    hideTypingIndicator(typingIndicator);
     addMessage("assistant", `Error: ${error.message}`);
   } finally {
-    const sendButton = mod === "literature" ? document.getElementById("literature-send") : sendBtn;
-    sendButton.disabled = false;
+    sendBtn.disabled = false;
     textInput.focus();
   }
 }
@@ -788,117 +658,6 @@ input.addEventListener("focus", () => {
 input.addEventListener("blur", () => {
   input.parentElement.classList.remove("focused");
 });
-
-// Literature Review mode input handlers
-const literatureInput = document.getElementById("literature-input");
-const literatureSendBtn = document.getElementById("literature-send");
-if (literatureInput && literatureSendBtn) {
-  literatureSendBtn.addEventListener("click", sendMessage);
-  literatureInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  });
-  literatureInput.addEventListener("focus", () => {
-    literatureInput.parentElement.classList.add("focused");
-  });
-  literatureInput.addEventListener("blur", () => {
-    literatureInput.parentElement.classList.remove("focused");
-  });
-}
-
-// Literature Review mode button handlers
-function updateLiteratureButtons() {
-  const projectIdInput = document.getElementById("literature-project-id");
-  const viewPapersBtn = document.getElementById("view-project-papers");
-  const viewPicoBtn = document.getElementById("view-project-pico");
-  
-  if (!projectIdInput) return;
-  
-  const projectName = projectIdInput.value?.trim();
-  if (projectName && projectName !== "default") {
-    getOrCreateProject(projectName).then(projectId => {
-      // Show view papers button if project has papers
-      fetch(`/api/projects/${projectId}/screening/stats`)
-        .then(res => res.json())
-        .then(stats => {
-          if (viewPapersBtn) {
-            viewPapersBtn.style.display = (stats.n_total > 0) ? 'inline-block' : 'none';
-          }
-        })
-        .catch(() => {
-          if (viewPapersBtn) viewPapersBtn.style.display = 'none';
-        });
-      
-      // Show view PICO button if PICO exists
-      fetch(`/api/projects/${projectId}/pico`)
-        .then(res => {
-          if (viewPicoBtn) {
-            viewPicoBtn.style.display = res.ok ? 'inline-block' : 'none';
-          }
-        })
-        .catch(() => {
-          if (viewPicoBtn) viewPicoBtn.style.display = 'none';
-        });
-    }).catch(() => {
-      if (viewPapersBtn) viewPapersBtn.style.display = 'none';
-      if (viewPicoBtn) viewPicoBtn.style.display = 'none';
-    });
-  } else {
-    if (viewPapersBtn) viewPapersBtn.style.display = 'none';
-    if (viewPicoBtn) viewPicoBtn.style.display = 'none';
-  }
-}
-
-// Initialize literature button handlers
-const viewProjectPapersBtn = document.getElementById("view-project-papers");
-const viewProjectPicoBtn = document.getElementById("view-project-pico");
-if (viewProjectPapersBtn) {
-  viewProjectPapersBtn.addEventListener('click', async () => {
-    const projectName = document.getElementById("literature-project-id")?.value?.trim();
-    if (projectName) {
-      try {
-        const projectId = await getOrCreateProject(projectName);
-        // Switch to screening mode to view papers
-        document.querySelector('input[name="mod"][value="screening"]').checked = true;
-        updateInputSection();
-        document.getElementById("screening-project-id").value = projectName;
-        // Trigger view results
-        const viewResultsBtn = document.getElementById("view-results-header-button");
-        if (viewResultsBtn && viewResultsBtn.style.display !== 'none') {
-          viewResultsBtn.click();
-        }
-      } catch (error) {
-        showNotification(`Error: ${error.message}`, 'error');
-      }
-    }
-  });
-}
-
-if (viewProjectPicoBtn) {
-  viewProjectPicoBtn.addEventListener('click', async () => {
-    const projectName = document.getElementById("literature-project-id")?.value?.trim();
-    if (projectName) {
-      try {
-        const projectId = await getOrCreateProject(projectName);
-        // Switch to PICO mode
-        document.querySelector('input[name="mod"][value="pico"]').checked = true;
-        updateInputSection();
-        document.getElementById("pico-project-id").value = projectName;
-      } catch (error) {
-        showNotification(`Error: ${error.message}`, 'error');
-      }
-    }
-  });
-}
-
-// Update literature buttons when project input changes
-const literatureProjectInput = document.getElementById("literature-project-id");
-if (literatureProjectInput) {
-  literatureProjectInput.addEventListener('change', updateLiteratureButtons);
-  literatureProjectInput.addEventListener('blur', updateLiteratureButtons);
-}
 
 // Refresh sidebar when project input changes
 const projectInput = document.getElementById('project_id');
@@ -955,9 +714,7 @@ function renderSidebarProjects(projects) {
   // Get current project name (check the appropriate input based on current mode)
   const mod = document.querySelector('input[name="mod"]:checked')?.value;
   let currentProject = '';
-  if (mod === 'literature') {
-    currentProject = document.getElementById('literature-project-id')?.value?.trim() || '';
-  } else if (mod === 'pico') {
+  if (mod === 'pico') {
     currentProject = document.getElementById('pico-project-id')?.value?.trim() || '';
   } else if (mod === 'screening') {
     currentProject = document.getElementById('screening-project-id')?.value?.trim() || '';
@@ -1002,7 +759,6 @@ async function loadProject(projectId, projectName) {
     // Set the project name in ALL input fields (for all modes)
     document.getElementById('project_id').value = projectName;
     document.getElementById('pico-project-id').value = projectName;
-    document.getElementById('literature-project-id').value = projectName;
     document.getElementById('screening-project-id').value = projectName;
     // Also set in header controls
     if (headerProjectInput) headerProjectInput.value = projectName;
@@ -1027,11 +783,11 @@ async function loadProject(projectId, projectName) {
     
     // Show project loaded message
     const mod = document.querySelector('input[name="mod"]:checked').value;
-    addMessage("assistant", `📁 **Switched to Project: ${projectName}**\n\nYou can now ask questions about the papers in this project using RAG mode, or search for new literature using Literature Review mode.`, mod);
+    addMessage("assistant", `📁 **Switched to Project: ${projectName}**\n\nYou can now ask questions about the papers in this project using RAG mode, review with PICO mode, or screen papers.`);
     
   } catch (error) {
     console.error('Error loading project:', error);
-    addMessage("assistant", `Error loading project: ${error.message}`, "rag");
+    addMessage("assistant", `Error loading project: ${error.message}`);
   }
 }
 
@@ -1229,22 +985,19 @@ function initSettings() {
   
   // Load saved settings
   function loadSettings() {
-    // Load Azure settings from localStorage
-    const azureEndpoint = localStorage.getItem('azure_endpoint');
-    const azureOpenAIDeployment = localStorage.getItem('azure_openai_deployment');
-    const azureEmbeddingDeployment = localStorage.getItem('azure_embedding_deployment');
-    const azureAgentName = localStorage.getItem('azure_agent_name');
-    const azureTenantId = localStorage.getItem('azure_tenant_id');
-    const azureClientId = localStorage.getItem('azure_client_id');
-    const azureClientSecret = localStorage.getItem('azure_client_secret');
-    
-    if (azureEndpoint) azureEndpointInput.value = azureEndpoint;
-    if (azureOpenAIDeployment) azureOpenAIDeploymentInput.value = azureOpenAIDeployment;
-    if (azureEmbeddingDeployment) azureEmbeddingDeploymentInput.value = azureEmbeddingDeployment;
-    if (azureAgentName) azureAgentNameInput.value = azureAgentName;
-    if (azureTenantId) azureTenantIdInput.value = azureTenantId;
-    if (azureClientId) azureClientIdInput.value = azureClientId;
-    if (azureClientSecret) azureClientSecretInput.value = azureClientSecret;
+    // Load Azure settings from backend (server-side runtime settings)
+    fetch('/api/settings')
+      .then(resp => resp.json())
+      .then(s => {
+        if (s.AZURE_EXISTING_AIPROJECT_ENDPOINT) azureEndpointInput.value = s.AZURE_EXISTING_AIPROJECT_ENDPOINT;
+        if (s.AZURE_OPENAI_DEPLOYMENT_NAME) azureOpenAIDeploymentInput.value = s.AZURE_OPENAI_DEPLOYMENT_NAME;
+        if (s.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME) azureEmbeddingDeploymentInput.value = s.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME;
+        if (s.AZURE_AGENT_NAME) azureAgentNameInput.value = s.AZURE_AGENT_NAME;
+        if (s.MICROSOFT_TENANT_ID) azureTenantIdInput.value = s.MICROSOFT_TENANT_ID;
+        if (s.MICROSOFT_CLIENT_ID) azureClientIdInput.value = s.MICROSOFT_CLIENT_ID;
+        if (s.MICROSOFT_CLIENT_SECRET) azureClientSecretInput.value = s.MICROSOFT_CLIENT_SECRET;
+      })
+      .catch(() => { /* backend unavailable, fields stay at defaults */ });
     
     // Load theme
     if (themeSelect) {
@@ -1280,14 +1033,12 @@ function initSettings() {
     if (savedPapers) {
       const paperLimitInput = document.getElementById("paper_limit");
       if (paperLimitInput) paperLimitInput.value = savedPapers;
-      const literaturePaperLimitInput = document.getElementById("literature-paper-limit");
-      if (literaturePaperLimitInput) literaturePaperLimitInput.value = savedPapers;
     }
   }
 
   // Save settings
   function saveSettingsToStorage() {
-    // Save Azure settings to localStorage
+    // Collect Azure settings
     const azureEndpoint = azureEndpointInput.value.trim();
     const azureOpenAIDeployment = azureOpenAIDeploymentInput.value.trim();
     const azureEmbeddingDeployment = azureEmbeddingDeploymentInput.value.trim();
@@ -1295,21 +1046,22 @@ function initSettings() {
     const azureTenantId = azureTenantIdInput.value.trim();
     const azureClientId = azureClientIdInput.value.trim();
     const azureClientSecret = azureClientSecretInput.value.trim();
-    
-    if (azureEndpoint) localStorage.setItem('azure_endpoint', azureEndpoint);
-    else localStorage.removeItem('azure_endpoint');
-    if (azureOpenAIDeployment) localStorage.setItem('azure_openai_deployment', azureOpenAIDeployment);
-    else localStorage.removeItem('azure_openai_deployment');
-    if (azureEmbeddingDeployment) localStorage.setItem('azure_embedding_deployment', azureEmbeddingDeployment);
-    else localStorage.removeItem('azure_embedding_deployment');
-    if (azureAgentName) localStorage.setItem('azure_agent_name', azureAgentName);
-    else localStorage.removeItem('azure_agent_name');
-    if (azureTenantId) localStorage.setItem('azure_tenant_id', azureTenantId);
-    else localStorage.removeItem('azure_tenant_id');
-    if (azureClientId) localStorage.setItem('azure_client_id', azureClientId);
-    else localStorage.removeItem('azure_client_id');
-    if (azureClientSecret) localStorage.setItem('azure_client_secret', azureClientSecret);
-    else localStorage.removeItem('azure_client_secret');
+
+    // Push Azure settings to backend (persisted server-side, used by agents)
+    const azureSettings = {};
+    if (azureEndpoint) azureSettings.AZURE_EXISTING_AIPROJECT_ENDPOINT = azureEndpoint;
+    if (azureOpenAIDeployment) azureSettings.AZURE_OPENAI_DEPLOYMENT_NAME = azureOpenAIDeployment;
+    if (azureEmbeddingDeployment) azureSettings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME = azureEmbeddingDeployment;
+    if (azureAgentName) azureSettings.AZURE_AGENT_NAME = azureAgentName;
+    if (azureTenantId) azureSettings.MICROSOFT_TENANT_ID = azureTenantId;
+    if (azureClientId) azureSettings.MICROSOFT_CLIENT_ID = azureClientId;
+    if (azureClientSecret) azureSettings.MICROSOFT_CLIENT_SECRET = azureClientSecret;
+
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(azureSettings)
+    }).catch(err => console.error('Failed to save settings to backend:', err));
     
     // Save theme
     if (themeSelect) {
@@ -1358,8 +1110,6 @@ function initSettings() {
     if (papers) {
       const paperLimitInput = document.getElementById("paper_limit");
       if (paperLimitInput) paperLimitInput.value = papers;
-      const literaturePaperLimitInput = document.getElementById("literature-paper-limit");
-      if (literaturePaperLimitInput) literaturePaperLimitInput.value = papers;
     }
   }
 
@@ -1525,9 +1275,7 @@ function initDeleteProject() {
     // Get project name from the current mode's input field
     const mod = document.querySelector('input[name="mod"]:checked')?.value;
     let projectName = '';
-    if (mod === 'literature') {
-      projectName = document.getElementById("literature-project-id")?.value?.trim() || '';
-    } else if (mod === 'pico') {
+    if (mod === 'pico') {
       projectName = document.getElementById("pico-project-id")?.value?.trim() || '';
     } else if (mod === 'screening') {
       projectName = document.getElementById("screening-project-id")?.value?.trim() || '';
@@ -1563,7 +1311,6 @@ function initDeleteProject() {
           document.getElementById("project_id").value = "";
           document.getElementById("pico-project-id").value = "";
           document.getElementById("screening-project-id").value = "";
-          document.getElementById("literature-project-id").value = "";
           if (headerProjectInput) headerProjectInput.value = "";
           
           // Clear chat
@@ -1672,13 +1419,13 @@ async function savePico() {
     
     updatePicoStatus('PICO saved successfully!', 'success');
     document.getElementById('expand-pico').disabled = false;
-    addMessage('assistant', '✅ **PICO Saved**\n\nYour PICO framework has been saved. You can now expand it to generate search queries.', 'pico');
+    addMessage('assistant', '✅ **PICO Saved**\n\nYour PICO framework has been saved. You can now expand it to generate search queries.');
     
     // Reload PICO data to ensure form is in sync
     await loadPicoData(projectId);
   } catch (error) {
     updatePicoStatus(`Error: ${error.message}`, 'error');
-    addMessage('assistant', `❌ **Error saving PICO**\n\n${error.message}`, 'pico');
+    addMessage('assistant', `❌ **Error saving PICO**\n\n${error.message}`);
   }
 }
 
@@ -1716,10 +1463,10 @@ async function expandPico() {
     message += `**PubMed Query:**\n\`${data.pubmed_query}\`\n\n`;
     message += `**OpenAlex Query:**\n\`${data.openalex_query}\`\n\n`;
     message += 'You can now generate the corpus.';
-    addMessage('assistant', message, 'pico');
+    addMessage('assistant', message);
   } catch (error) {
     updatePicoStatus(`Error: ${error.message}`, 'error');
-    addMessage('assistant', `❌ **Error expanding PICO**\n\n${error.message}`, 'pico');
+    addMessage('assistant', `❌ **Error expanding PICO**\n\n${error.message}`);
   }
 }
 
@@ -1738,7 +1485,7 @@ async function generateCorpus() {
     const apiKey = localStorage.getItem('openai_api_key');
     
     // Show loading message
-    addMessage('assistant', '⏳ **Generating Corpus**\n\nFetching papers from PubMed and OpenAlex. This may take a few minutes...', 'pico');
+    addMessage('assistant', '⏳ **Generating Corpus**\n\nFetching papers from PubMed and OpenAlex. This may take a few minutes...');
     
     const res = await fetch(`/api/projects/${projectId}/generate-corpus`, {
       method: 'POST',
@@ -1774,10 +1521,10 @@ async function generateCorpus() {
     message += '2. Papers are now available in your project for manual or AI-assisted screening\n';
     message += '3. RAG embeddings have been updated - you can ask questions about the corpus';
     
-    addMessage('assistant', message, 'pico');
+    addMessage('assistant', message);
   } catch (error) {
     updatePicoStatus(`Error: ${error.message}`, 'error');
-    addMessage('assistant', `❌ **Error generating corpus**\n\n${error.message}`, 'pico');
+    addMessage('assistant', `❌ **Error generating corpus**\n\n${error.message}`);
   }
 }
 
@@ -3175,18 +2922,14 @@ async function exportPapers(format) {
 if (headerProjectInput) {
   headerProjectInput.addEventListener('input', () => {
     const projectId = document.getElementById("project_id");
-    const literatureProjectId = document.getElementById("literature-project-id");
     if (projectId) projectId.value = headerProjectInput.value;
-    if (literatureProjectId) literatureProjectId.value = headerProjectInput.value;
   });
 }
 
 if (headerPaperLimitInput) {
   headerPaperLimitInput.addEventListener('input', () => {
     const paperLimit = document.getElementById("paper_limit");
-    const literaturePaperLimit = document.getElementById("literature-paper-limit");
     if (paperLimit) paperLimit.value = headerPaperLimitInput.value;
-    if (literaturePaperLimit) literaturePaperLimit.value = headerPaperLimitInput.value;
   });
 }
 

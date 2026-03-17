@@ -45,7 +45,7 @@ def login():
     """Initiate Microsoft login flow."""
     try:
         msal_app = get_msal_app()
-        redirect_uri = os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:5000/auth/callback")
+        redirect_uri = os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:5001/auth/callback")
 
         auth_url = msal_app.get_authorization_request_url(
             scopes=["User.Read"],
@@ -67,7 +67,7 @@ def callback():
             return jsonify({"error": "No authorization code received"}), 400
 
         msal_app = get_msal_app()
-        redirect_uri = os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:5000/auth/callback")
+        redirect_uri = os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:5001/auth/callback")
 
         result = msal_app.acquire_token_by_authorization_code(
             code,

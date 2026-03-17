@@ -22,14 +22,7 @@
         <div class="mode-selector">
           <div class="mode-tabs">
             <label class="mode-tab">
-              <input type="radio" name="mod" value="literature" checked>
-              <span class="tab-content">
-                <span class="tab-icon">🔍</span>
-                <span class="tab-text">Literature Review</span>
-              </span>
-            </label>
-            <label class="mode-tab">
-              <input type="radio" name="mod" value="rag">
+              <input type="radio" name="mod" value="rag" checked>
               <span class="tab-content">
                 <span class="tab-icon">💬</span>
                 <span class="tab-text">RAG Chat</span>
@@ -132,16 +125,10 @@
         <div id="chat" class="chat">
           <div id="chat-messages" class="chat-messages"></div>
           
-          <!-- Literature Review header buttons (inside chat) -->
-          <div id="literature-header-buttons" class="literature-header-buttons" style="display: none;">
-            <button id="view-project-papers" class="literature-button literature-button-secondary" style="display: none;">📄 View Project Papers</button>
-            <button id="view-project-pico" class="literature-button literature-button-secondary" style="display: none;">📋 View PICO</button>
-          </div>
-          
           <!-- Composer for RAG mode -->
           <div id="rag-composer" class="chat-composer">
             <div class="input-wrapper">
-              <input id="input" type="text" placeholder="Ask about literature, research questions, or search for papers..." class="message-input" />
+              <input id="input" type="text" placeholder="Ask questions about your research papers..." class="message-input" />
               <button id="send" class="send-button">
                 <span class="send-icon">→</span>
                 <span class="send-text">Send</span>
@@ -149,23 +136,11 @@
             </div>
           </div>
           
-          <!-- Composer for Literature Review mode -->
-          <div id="literature-composer" class="chat-composer" style="display: none;">
-            <div class="input-wrapper">
-              <input id="literature-input" type="text" placeholder="Search for papers, ask research questions, or explore literature..." class="message-input" />
-              <button id="literature-send" class="send-button">
-                <span class="send-icon">→</span>
-                <span class="send-text">Send</span>
-              </button>
-            </div>
-          </div>
         </div>
         
         <!-- Keep hidden inputs for backward compatibility -->
         <input id="project_id" type="hidden" />
         <input id="paper_limit" type="hidden" />
-        <input id="literature-project-id" type="hidden" />
-        <input id="literature-paper-limit" type="hidden" />
 
         <!-- PICO input section (for PICO mode) -->
         <div id="pico-input-section" class="input-section pico-section" style="display: none;">
@@ -413,7 +388,7 @@
               <div class="form-group">
                 <label for="default-papers">Default Paper Limit:</label>
                 <input type="number" id="default-papers" value="10" min="1" max="50" />
-                <small>Default number of papers to fetch in literature review</small>
+                <small>Default number of papers to fetch per query</small>
               </div>
               <div class="form-group">
                 <label for="default-project">Default Project Name:</label>

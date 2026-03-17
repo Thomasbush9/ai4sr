@@ -7,6 +7,18 @@ from azure.identity import DefaultAzureCredential, ClientSecretCredential, Azure
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import PromptAgentDefinition
 from openai import AzureOpenAI
+from utils.logger import get_logger
+import settings_store
+
+logger = get_logger("agents.azure_config")
+
+
+def _setting(key: str, default=None):
+    """Get a config value: runtime settings override environment variables."""
+    val = settings_store.get(key)
+    if val:
+        return val
+    return os.getenv(key, default)
 
 # Use RLock (reentrant lock) to avoid deadlock when get_azure_client() calls get_project_client()
 _azure_client_lock = threading.RLock()
@@ -19,6 +31,22 @@ _thread_local = threading.local()
 
 # Cache for direct Azure OpenAI client (for embeddings)
 _embedding_client = None
+
+
+def reset_clients():
+    """Invalidate all cached Azure clients so they're recreated with new settings."""
+    global _project_client, _openai_client, _agents, _embedding_client
+    with _azure_client_lock:
+        _project_client = None
+        _openai_client = None
+        _agents = {}
+        _embedding_client = None
+        if hasattr(_thread_local, 'openai_client'):
+            _thread_local.openai_client = None
+        if hasattr(_thread_local, 'embedding_client'):
+            _thread_local.embedding_client = None
+    logger.info("All cached Azure clients have been reset")
+
 
 # Agent definitions with specialized instructions
 AGENT_DEFINITIONS = {
@@ -100,9 +128,9 @@ Always respond in valid JSON format when requested."""
 
 def get_credential():
     """Get Azure credential - use service principal if available, else try Azure CLI (az login), else DefaultAzureCredential."""
-    tenant_id = os.getenv("MICROSOFT_TENANT_ID")
-    client_id = os.getenv("MICROSOFT_CLIENT_ID")
-    client_secret = os.getenv("MICROSOFT_CLIENT_SECRET")
+    tenant_id = _setting("MICROSOFT_TENANT_ID")
+    client_id = _setting("MICROSOFT_CLIENT_ID")
+    client_secret = _setting("MICROSOFT_CLIENT_SECRET")
 
     if tenant_id and client_id and client_secret:
         return ClientSecretCredential(
@@ -125,32 +153,32 @@ def get_project_client() -> AIProjectClient:
     
     # Double-check pattern to avoid lock contention
     if _project_client is not None:
-        print(f"DEBUG: Using existing project client (cached)", flush=True)
+        logger.debug("Using existing project client (cached)")
         return _project_client
 
-    print(f"DEBUG: Acquiring lock to create project client...", flush=True)
+    logger.debug("Acquiring lock to create project client...")
     with _azure_client_lock:
-        print(f"DEBUG: Lock acquired for project client, checking if still None...", flush=True)
+        logger.debug("Lock acquired for project client, checking if still None...")
         # Double-check again inside lock
         if _project_client is not None:
-            print(f"DEBUG: Project client created by another thread, returning cached", flush=True)
+            logger.debug("Project client created by another thread, returning cached")
             return _project_client
         
         try:
-            endpoint = os.getenv("AZURE_EXISTING_AIPROJECT_ENDPOINT")
+            endpoint = _setting("AZURE_EXISTING_AIPROJECT_ENDPOINT")
 
             if not endpoint:
                 raise ValueError(
                     "Azure AI Project not configured. "
-                    "Please set AZURE_EXISTING_AIPROJECT_ENDPOINT environment variable."
+                    "Set AZURE_EXISTING_AIPROJECT_ENDPOINT in Settings or .env file."
                 )
 
-            print(f"DEBUG: Creating Azure AI Project client with endpoint: {endpoint[:50]}...", flush=True)
+            logger.debug("Creating Azure AI Project client with endpoint: %s...", endpoint[:50])
             import time
             start = time.time()
             credential = get_credential()
             elapsed = time.time() - start
-            print(f"DEBUG: Credential obtained in {elapsed:.2f}s, creating AIProjectClient...", flush=True)
+            logger.debug("Credential obtained in %.2fs, creating AIProjectClient...", elapsed)
             
             start = time.time()
             _project_client = AIProjectClient(
@@ -158,11 +186,9 @@ def get_project_client() -> AIProjectClient:
                 credential=credential
             )
             elapsed = time.time() - start
-            print(f"DEBUG: AIProjectClient created successfully in {elapsed:.2f}s", flush=True)
+            logger.debug("AIProjectClient created successfully in %.2fs", elapsed)
         except Exception as e:
-            print(f"ERROR: Failed to create project client: {e}", flush=True)
-            import traceback
-            traceback.print_exc()
+            logger.error("Failed to create project client: %s", e, exc_info=True)
             raise
 
     return _project_client
@@ -181,7 +207,7 @@ def _extract_direct_endpoint(ai_project_endpoint: str) -> str:
         Direct Azure OpenAI endpoint URL
     """
     # First, check if explicitly set in environment
-    direct_endpoint = os.getenv("AZURE_OPENAI_DIRECT_ENDPOINT")
+    direct_endpoint = _setting("AZURE_OPENAI_DIRECT_ENDPOINT")
     if direct_endpoint:
         return direct_endpoint.rstrip('/')
     
@@ -237,12 +263,12 @@ def get_embedding_client():
         
         try:
             # Get the direct endpoint
-            ai_project_endpoint = os.getenv("AZURE_EXISTING_AIPROJECT_ENDPOINT")
+            ai_project_endpoint = _setting("AZURE_EXISTING_AIPROJECT_ENDPOINT")
             if not ai_project_endpoint:
                 raise ValueError("AZURE_EXISTING_AIPROJECT_ENDPOINT not set")
             
             direct_endpoint = _extract_direct_endpoint(ai_project_endpoint)
-            print(f"DEBUG: Creating direct Azure OpenAI client for embeddings at {direct_endpoint}", flush=True)
+            logger.debug("Creating direct Azure OpenAI client for embeddings at %s", direct_endpoint)
             
             # Get credential
             credential = get_credential()
@@ -259,7 +285,7 @@ def get_embedding_client():
             _embedding_client = AzureOpenAI(
                 azure_endpoint=direct_endpoint,
                 azure_ad_token_provider=get_token,
-                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+                api_version=_setting("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
             )
             
             # Store in thread-local for Flask
@@ -270,15 +296,13 @@ def get_embedding_client():
             except ImportError:
                 pass
             
-            print(f"DEBUG: Direct Azure OpenAI client created successfully", flush=True)
+            logger.debug("Direct Azure OpenAI client created successfully")
             return _embedding_client
-            
+
         except Exception as e:
-            print(f"ERROR: Failed to create direct Azure OpenAI client: {e}", flush=True)
-            import traceback
-            traceback.print_exc()
+            logger.error("Failed to create direct Azure OpenAI client: %s", e, exc_info=True)
             # Fall back to AI Projects client if direct client fails
-            print(f"DEBUG: Falling back to AI Projects client for embeddings", flush=True)
+            logger.debug("Falling back to AI Projects client for embeddings")
             return get_azure_client()
 
 
@@ -307,16 +331,16 @@ def get_or_create_agent(agent_type: str = "default"):
             if agent_type not in _agents:
                 try:
                     project_client = get_project_client()
-                    model_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
+                    model_deployment = _setting("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
 
                     # Get agent definition
                     agent_def = AGENT_DEFINITIONS.get(agent_type, AGENT_DEFINITIONS["default"])
 
-                    print(f"DEBUG: Creating Azure agent '{agent_def['name']}' (type: {agent_type})...", flush=True)
-                    
+                    logger.debug("Creating Azure agent '%s' (type: %s)...", agent_def['name'], agent_type)
+
                     # Create agent directly - don't use ThreadPoolExecutor in Flask
                     # The Azure SDK client should handle timeouts internally
-                    print(f"DEBUG: Creating agent directly (no thread pool)...", flush=True)
+                    logger.debug("Creating agent directly (no thread pool)...")
                     try:
                         _agents[agent_type] = project_client.agents.create_version(
                             agent_name=agent_def["name"],
@@ -325,24 +349,22 @@ def get_or_create_agent(agent_type: str = "default"):
                                 instructions=agent_def["instructions"]
                             )
                         )
-                        print(f"DEBUG: Successfully created agent '{agent_def['name']}'", flush=True)
+                        logger.debug("Successfully created agent '%s'", agent_def['name'])
                     except Exception as create_error:
                         error_msg = f"Agent creation failed: {str(create_error)}"
-                        print(f"ERROR: {error_msg}", flush=True)
+                        logger.error("%s", error_msg)
                         # Check if it took too long (rough check)
-                        print("Possible causes:", flush=True)
-                        print("  1. Azure AI Foundry is slow or unresponsive", flush=True)
-                        print("  2. Network connectivity issues", flush=True)
-                        print("  3. Stuck pipeline runs in Azure Portal (cancel them)", flush=True)
+                        logger.error("Possible causes: 1. Azure AI Foundry is slow or unresponsive, "
+                                     "2. Network connectivity issues, "
+                                     "3. Stuck pipeline runs in Azure Portal (cancel them)")
                         raise Exception(error_msg) from create_error
                         
                 except Exception as e:
                     error_msg = f"Failed to create Azure agent '{agent_def.get('name', agent_type)}': {str(e)}"
-                    print(f"ERROR: {error_msg}", flush=True)
-                    print("Please ensure:", flush=True)
-                    print("  1. AZURE_EXISTING_AIPROJECT_ENDPOINT is set correctly", flush=True)
-                    print("  2. You are authenticated with Azure (az login)", flush=True)
-                    print("  3. You have permissions to create agents in Azure AI Foundry", flush=True)
+                    logger.error("%s", error_msg)
+                    logger.error("Please ensure: 1. AZURE_EXISTING_AIPROJECT_ENDPOINT is set correctly, "
+                                 "2. You are authenticated with Azure (az login), "
+                                 "3. You have permissions to create agents in Azure AI Foundry")
                     raise Exception(error_msg) from e
 
     return _agents[agent_type]
@@ -355,23 +377,23 @@ def get_azure_client():
     """
     # Check thread-local storage first (for Flask threading)
     if hasattr(_thread_local, 'openai_client') and _thread_local.openai_client is not None:
-        print(f"DEBUG: Using thread-local OpenAI client (cached)", flush=True)
+        logger.debug("Using thread-local OpenAI client (cached)")
         return _thread_local.openai_client
     
     # Fall back to global cache for single-threaded environments
     global _openai_client
     if _openai_client is not None:
-        print(f"DEBUG: Using global OpenAI client (cached)", flush=True)
+        logger.debug("Using global OpenAI client (cached)")
         return _openai_client
     
-    print(f"DEBUG: Creating new OpenAI client (not cached)", flush=True)
+    logger.debug("Creating new OpenAI client (not cached)")
     
     # Create new client - don't cache in Flask to avoid threading issues
     # In single-threaded test scripts, we can use global cache
     try:
-        print(f"DEBUG: Getting project client...", flush=True)
+        logger.debug("Getting project client...")
         project_client = get_project_client()
-        print(f"DEBUG: Project client obtained, calling get_openai_client()...", flush=True)
+        logger.debug("Project client obtained, calling get_openai_client()...")
         
         # This call might hang - add detailed logging
         import time
@@ -386,7 +408,7 @@ def get_azure_client():
             is_flask = False
         
         if is_flask:
-            print(f"DEBUG: Flask context detected, using thread-local storage", flush=True)
+            logger.debug("Flask context detected, using thread-local storage")
             _thread_local.openai_client = project_client.get_openai_client()
             client = _thread_local.openai_client
         else:
@@ -397,26 +419,24 @@ def get_azure_client():
                 client = _openai_client
         
         elapsed = time.time() - start
-        print(f"DEBUG: get_openai_client() completed in {elapsed:.2f}s (type: {type(client).__name__})", flush=True)
+        logger.debug("get_openai_client() completed in %.2fs (type: %s)", elapsed, type(client).__name__)
         
         # Configure timeout (60 seconds for API calls)
         if hasattr(client, '_client'):
             # Set timeout on underlying httpx client if available
-            timeout = os.getenv("AZURE_OPENAI_TIMEOUT", "60")
+            timeout = _setting("AZURE_OPENAI_TIMEOUT", "60")
             try:
                 timeout_seconds = float(timeout)
                 if hasattr(client._client, 'timeout'):
                     client._client.timeout = timeout_seconds
-                    print(f"DEBUG: Set client timeout to {timeout_seconds}s", flush=True)
+                    logger.debug("Set client timeout to %ss", timeout_seconds)
             except (ValueError, AttributeError):
-                print(f"DEBUG: Timeout configuration not supported, using default", flush=True)
+                logger.debug("Timeout configuration not supported, using default")
         
         return client
         
     except Exception as e:
-        print(f"ERROR: Failed to create OpenAI client: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
+        logger.error("Failed to create OpenAI client: %s", e, exc_info=True)
         raise
 
 
@@ -449,20 +469,20 @@ def chat_completion(
     import time
     
     if timeout is None:
-        timeout = float(os.getenv("AZURE_OPENAI_TIMEOUT", "60"))
+        timeout = float(_setting("AZURE_OPENAI_TIMEOUT", "60"))
     
     try:
-        print(f"DEBUG: Starting chat completion for agent_type={agent_type} (timeout={timeout}s)", flush=True)
-        
+        logger.debug("Starting chat completion for agent_type=%s (timeout=%ss)", agent_type, timeout)
+
         # Get client first
-        print(f"DEBUG: Getting Azure client...", flush=True)
+        logger.debug("Getting Azure client...")
         client = get_azure_client()
-        print(f"DEBUG: Azure client obtained (type: {type(client).__name__})", flush=True)
-        
+        logger.debug("Azure client obtained (type: %s)", type(client).__name__)
+
         # Get or create agent (this might hang if agent creation is slow)
-        print(f"DEBUG: Getting or creating agent (type: {agent_type})...", flush=True)
+        logger.debug("Getting or creating agent (type: %s)...", agent_type)
         agent = get_or_create_agent(agent_type)
-        print(f"DEBUG: Agent obtained: {agent.name} (type: {type(agent).__name__})", flush=True)
+        logger.debug("Agent obtained: %s (type: %s)", agent.name, type(agent).__name__)
 
         # Convert messages to input format (use last user message)
         user_content = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
@@ -470,12 +490,12 @@ def chat_completion(
         if not user_content:
             raise ValueError("No user message found in messages list")
 
-        print(f"DEBUG: Calling Azure AI Foundry agent '{agent.name}' with content length {len(user_content)}...", flush=True)
+        logger.debug("Calling Azure AI Foundry agent '%s' with content length %d...", agent.name, len(user_content))
         start_time = time.time()
         
         # Make the API call directly - the underlying httpx client should handle timeout
         # ThreadPoolExecutor timeout doesn't work well in Flask's threading model
-        print(f"DEBUG: Making direct API call to responses.create...", flush=True)
+        logger.debug("Making direct API call to responses.create...")
         try:
             # Call directly - Azure SDK's httpx client should respect timeout from client config
             # If timeout parameter is supported, use it; otherwise rely on client-level timeout
@@ -496,43 +516,42 @@ def chat_completion(
                 sig = inspect.signature(client.responses.create)
                 if 'timeout' in sig.parameters:
                     call_kwargs['timeout'] = timeout
-                    print(f"DEBUG: Using timeout parameter in API call", flush=True)
+                    logger.debug("Using timeout parameter in API call")
             except (AttributeError, TypeError):
                 # Method doesn't support timeout parameter, rely on client-level timeout
-                print(f"DEBUG: Method doesn't support timeout parameter, using client-level timeout", flush=True)
+                logger.debug("Method doesn't support timeout parameter, using client-level timeout")
             
             response = client.responses.create(**call_kwargs)
             
             elapsed = time.time() - start_time
-            print(f"DEBUG: Agent response received in {elapsed:.2f}s", flush=True)
-            
+            logger.debug("Agent response received in %.2fs", elapsed)
+
             if not hasattr(response, 'output_text') or not response.output_text:
-                print(f"DEBUG: Response object attributes: {dir(response)}", flush=True)
+                logger.debug("Response object attributes: %s", dir(response))
                 raise ValueError("Empty response from Azure agent")
             
-            print(f"DEBUG: Response text length: {len(response.output_text)}", flush=True)
+            logger.debug("Response text length: %d", len(response.output_text))
             return response.output_text
             
         except Exception as api_error:
             elapsed = time.time() - start_time
             error_msg = str(api_error)
-            print(f"DEBUG: Agent call failed after {elapsed:.2f}s: {error_msg}", flush=True)
-            
+            logger.debug("Agent call failed after %.2fs: %s", elapsed, error_msg)
+
             # Check if it's a timeout
             if elapsed >= timeout * 0.9:  # Allow 10% tolerance
-                print(f"ERROR: Agent call appears to have timed out after {elapsed:.2f}s", flush=True)
+                logger.error("Agent call appears to have timed out after %.2fs", elapsed)
                 raise Exception(f"Agent call timed out after {timeout} seconds. Please check:\n"
                               f"1. Azure AI Foundry service status\n"
                               f"2. Network connectivity\n"
                               f"3. Cancel any stuck pipeline runs in Azure Portal")
             
-            import traceback
-            traceback.print_exc()
+            logger.error("Azure API call failed: %s", error_msg, exc_info=True)
             raise Exception(f"Azure API call failed: {error_msg}") from api_error
             
     except Exception as e:
         error_msg = f"Chat completion failed for agent_type={agent_type}: {str(e)}"
-        print(f"ERROR: {error_msg}", flush=True)
+        logger.error("%s", error_msg)
         
         # Provide helpful error messages
         if "timeout" in str(e).lower() or "timed out" in str(e).lower():
@@ -560,7 +579,7 @@ def get_openai_embedding_client():
         ValueError: If OPENAI_KEY not set
         ImportError: If openai package not installed
     """
-    openai_key = os.getenv("OPENAI_KEY")
+    openai_key = _setting("OPENAI_KEY")
     if not openai_key:
         raise ValueError("OPENAI_KEY not set - cannot use OpenAI embeddings fallback")
     
@@ -593,7 +612,7 @@ def get_embedding(
         raise ValueError("Text cannot be empty for embedding")
     
     if deployment_name is None:
-        deployment_name = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-small")
+        deployment_name = _setting("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-small")
     
     # Try Azure first
     try:
@@ -601,7 +620,7 @@ def get_embedding(
         try:
             client = get_embedding_client()
         except Exception as e:
-            print(f"DEBUG: Failed to get direct embedding client, falling back to AI Projects client: {e}", flush=True)
+            logger.debug("Failed to get direct embedding client, falling back to AI Projects client: %s", e)
             client = get_azure_client()
 
         response = client.embeddings.create(
@@ -612,22 +631,22 @@ def get_embedding(
         if not response.data or len(response.data) == 0:
             raise ValueError("Empty response from Azure embedding API")
 
-        print(f"DEBUG: Successfully got embedding from Azure", flush=True)
+        logger.debug("Successfully got embedding from Azure")
         return response.data[0].embedding
         
     except Exception as azure_error:
         error_str = str(azure_error)
-        print(f"DEBUG: Azure embedding failed: {error_str}", flush=True)
+        logger.debug("Azure embedding failed: %s", error_str)
         
         # Check if we should try OpenAI fallback
-        openai_key = os.getenv("OPENAI_KEY")
+        openai_key = _setting("OPENAI_KEY")
         if not openai_key:
             # No fallback available, raise the Azure error
             raise Exception(f"Azure embedding failed and OPENAI_KEY not set for fallback: {error_str}") from azure_error
         
         # Try OpenAI fallback
         try:
-            print(f"DEBUG: Attempting OpenAI embedding fallback", flush=True)
+            logger.debug("Attempting OpenAI embedding fallback")
             openai_client = get_openai_embedding_client()
             
             # Use same model name for OpenAI (text-embedding-3-small works with OpenAI too)
@@ -641,7 +660,7 @@ def get_embedding(
             if not response.data or len(response.data) == 0:
                 raise ValueError("Empty response from OpenAI embedding API")
             
-            print(f"DEBUG: Successfully got embedding from OpenAI (fallback)", flush=True)
+            logger.debug("Successfully got embedding from OpenAI (fallback)")
             return response.data[0].embedding
             
         except Exception as openai_error:
@@ -675,12 +694,12 @@ def get_embeddings_batch(
         return []
 
     if deployment_name is None:
-        deployment_name = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-small")
+        deployment_name = _setting("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", "text-embedding-3-small")
 
     # Filter out empty texts
     valid_texts = [t for t in texts if t and t.strip()]
     if len(valid_texts) != len(texts):
-        print(f"DEBUG: Filtered out {len(texts) - len(valid_texts)} empty texts", flush=True)
+        logger.debug("Filtered out %d empty texts", len(texts) - len(valid_texts))
 
     if not valid_texts:
         raise ValueError("No valid texts provided for embedding")
@@ -693,9 +712,9 @@ def get_embeddings_batch(
         use_direct_client = True
         try:
             client = get_embedding_client()
-            print(f"DEBUG: Using direct Azure OpenAI client for embeddings", flush=True)
+            logger.debug("Using direct Azure OpenAI client for embeddings")
         except Exception as e:
-            print(f"DEBUG: Failed to get direct embedding client, falling back to AI Projects client: {e}", flush=True)
+            logger.debug("Failed to get direct embedding client, falling back to AI Projects client: %s", e)
             client = get_azure_client()
             use_direct_client = False
 
@@ -707,7 +726,7 @@ def get_embeddings_batch(
         except Exception as api_error:
             # If direct client failed with 404, try AI Projects client as fallback
             if use_direct_client and ("404" in str(api_error) or "NotFound" in str(type(api_error).__name__)):
-                print(f"DEBUG: Direct client failed with 404, trying AI Projects client as fallback", flush=True)
+                logger.debug("Direct client failed with 404, trying AI Projects client as fallback")
                 try:
                     client = get_azure_client()
                     response = client.embeddings.create(
@@ -722,21 +741,21 @@ def get_embeddings_batch(
         if not response.data or len(response.data) != len(valid_texts):
             raise ValueError(f"Expected {len(valid_texts)} embeddings, got {len(response.data) if response.data else 0}")
 
-        print(f"DEBUG: Successfully got {len(valid_texts)} embeddings from Azure", flush=True)
+        logger.debug("Successfully got %d embeddings from Azure", len(valid_texts))
         return [item.embedding for item in response.data]
         
     except Exception as azure_error:
         error_str = str(azure_error)
-        print(f"DEBUG: Azure batch embedding failed: {error_str}", flush=True)
+        logger.debug("Azure batch embedding failed: %s", error_str)
         
         # Check if we should try OpenAI fallback
-        openai_key = os.getenv("OPENAI_KEY")
+        openai_key = _setting("OPENAI_KEY")
         if not openai_key:
             raise Exception(f"Azure embedding failed and OPENAI_KEY not set for fallback: {error_str}") from azure_error
         
         # Try OpenAI fallback
         try:
-            print(f"DEBUG: Attempting OpenAI embedding fallback for {len(valid_texts)} texts", flush=True)
+            logger.debug("Attempting OpenAI embedding fallback for %d texts", len(valid_texts))
             openai_client = get_openai_embedding_client()
             
             # Use same model name for OpenAI
@@ -750,7 +769,7 @@ def get_embeddings_batch(
             if not response.data or len(response.data) != len(valid_texts):
                 raise ValueError(f"Expected {len(valid_texts)} embeddings from OpenAI, got {len(response.data) if response.data else 0}")
             
-            print(f"DEBUG: Successfully got {len(valid_texts)} embeddings from OpenAI (fallback)", flush=True)
+            logger.debug("Successfully got %d embeddings from OpenAI (fallback)", len(valid_texts))
             return [item.embedding for item in response.data]
             
         except Exception as openai_error:
