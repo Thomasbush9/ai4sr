@@ -13,34 +13,32 @@ load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from agents.azure_config import (
-    get_project_client,
-    get_azure_client,
-    get_or_create_agent,
     chat_completion,
     AGENT_DEFINITIONS
 )
 
 
 def test_agent_creation():
-    """Test that all agents can be created."""
+    """Test that the Azure OpenAI client can be created and agent definitions exist."""
     print("\n" + "="*60)
-    print("TEST 1: Agent Creation")
+    print("TEST 1: Client & Agent Definitions")
     print("="*60)
 
-    project_client = get_project_client()
-    print(f"Project client connected: {project_client is not None}")
+    from agents.azure_config import get_azure_client
 
-    openai_client = get_azure_client()
-    print(f"OpenAI client connected: {openai_client is not None}")
+    try:
+        client = get_azure_client()
+        print(f"Azure OpenAI client created: {client is not None}")
+    except Exception as e:
+        print(f"  [FAIL] Could not create Azure client: {e}")
+        return False
 
-    # Create all agents
-    for agent_type in AGENT_DEFINITIONS.keys():
-        try:
-            agent = get_or_create_agent(agent_type)
-            print(f"  [OK] Created agent: {agent.name} (type: {agent_type})")
-        except Exception as e:
-            print(f"  [FAIL] Failed to create agent {agent_type}: {e}")
+    # Verify all agent definitions have required keys
+    for agent_type, defn in AGENT_DEFINITIONS.items():
+        if "name" not in defn or "instructions" not in defn:
+            print(f"  [FAIL] Agent definition '{agent_type}' missing name or instructions")
             return False
+        print(f"  [OK] Agent definition: {defn['name']} (type: {agent_type})")
 
     return True
 

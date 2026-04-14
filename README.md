@@ -1,341 +1,422 @@
 # AI4SR - AI-Powered Systematic Review Assistant
 
-An AI-powered literature review assistant that helps researchers find, analyze, and organize academic papers using advanced language models and semantic search.
+An AI-powered literature review assistant that helps researchers find, analyze, and organize academic papers using Azure OpenAI (or OpenAI as fallback) and semantic search.
 
 ## Features
 
-- **Literature Review Mode**: Automated paper discovery and screening using AI
-- **RAG Chat Mode**: Interactive Q&A about your research papers
-- **Project Management**: Organize papers by research projects
-- **Smart Screening**: AI-powered relevance scoring and rationale
-- **PICO Framework Support**: Structured research question formulation
-- **Docker Support**: Easy deployment and distribution
+- **Literature Review Mode**: Automated paper discovery from PubMed + OpenAlex with AI screening
+- **RAG Chat Mode**: Interactive Q&A over your collected papers
+- **Project Management**: Isolate papers, conversations, and embeddings per project
+- **Smart Screening**: Two-stage AI screening (basic relevance → detailed PICO analysis)
+- **PICO Framework**: Structured research question → search query expansion
+- **Active Learning**: Cold-start labeling, uncertainty sampling, and auto-labeling
 
-## Prerequisites
+---
 
-- **Python 3.10+** (for local development)
-- **Docker & Docker Compose** (for containerized deployment)
-- **API Key**: Either:
-  - OpenAI API key, OR
-  - Azure AI Projects endpoint (see `SETUP_AZURE.md`)
+## Deployment Guide (IT / Infrastructure)
 
-## Quick Start
+### Prerequisites
 
-### Option 1: Docker Deployment (Recommended)
+| Requirement | Details |
+|---|---|
+| Docker & Docker Compose | v20+ recommended |
+| Azure OpenAI resource | With a chat deployment (e.g. `gpt-4.1`) |
+| Azure Embedding deployment | `text-embedding-3-small` (or equivalent) |
+| TLS certificate | Self-signed for dev; trusted CA cert for production |
 
-**Step 1: Clone the repository**
+### Network / Firewall Requirements
+
+| Port | Direction | Protocol | Purpose |
+|---|---|---|---|
+| **5001** (or your chosen port) | Inbound | HTTPS | User access (nginx → Flask) |
+| **80** | Inbound | HTTP | Redirects to HTTPS |
+| **443** | Outbound | HTTPS | Azure OpenAI API (`*.openai.azure.com`) |
+| **443** | Outbound | HTTPS | Azure Management API (`management.azure.com`) |
+| **443** | Outbound | HTTPS | Microsoft Entra ID (`login.microsoftonline.com`) |
+| **443** | Outbound | HTTPS | PubMed API (`eutils.ncbi.nlm.nih.gov`) |
+| **443** | Outbound | HTTPS | OpenAlex API (`api.openalex.org`) |
+
+### 1. Clone and configure
+
 ```bash
 git clone <repository-url>
 cd ai4sr
-```
-
-**Step 2: Create environment file**
-```bash
 cp env.example .env
 ```
 
-**Step 3: Configure API key**
-Edit `.env` and add your OpenAI API key:
+Edit `.env` with your values. **Minimum required for Azure:**
+
 ```bash
-OPENAI_KEY=sk-your-api-key-here
+# Azure OpenAI
+AZURE_OPENAI_DIRECT_ENDPOINT=https://oai-ai4sr.cognitiveservices.azure.com
+AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4.1
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=text-embedding-3-small
+
+# Azure authentication (service principal)
+MICROSOFT_TENANT_ID=88ffe1c8-07b4-40b5-b4de-00f9b61e942b
+MICROSOFT_CLIENT_ID=6e631254-d0bc-4c82-b729-7a9a1c99bee0
+MICROSOFT_CLIENT_SECRET=<your-client-secret>
+
+# Flask (REQUIRED in production)
+FLASK_ENV=production
+FLASK_SECRET_KEY=<generate with: python -c "import secrets; print(secrets.token_hex(32))">
 ```
 
-**Step 4: Generate SSL certificates**
+> **Fallback**: If Azure is unavailable, set `OPENAI_KEY=sk-...` instead. The app will use OpenAI's API for both chat and embeddings.
+
+### 2. TLS certificates
+
+The nginx reverse proxy terminates TLS. You have two options:
+
+**Option A — Self-signed (dev/testing only):**
 ```bash
-# Generate self-signed certificates for HTTPS
 ./nginx/generate-certs.sh
 ```
 
-**Step 5: Build and run**
+**Option B — Trusted CA certificate (production):**
+```bash
+# Place your certificate and private key at:
+cp /path/to/your/cert.pem  nginx/ssl/cert.pem
+cp /path/to/your/key.pem   nginx/ssl/key.pem
+```
+
+The certificate must cover the hostname users will access (e.g., `ai4sr.euda.europa.eu`).
+
+If using an internal CA, ensure client browsers/machines trust the CA root certificate (via GPO, MDM, or manual install).
+
+### 3. Build and start
+
 ```bash
 docker-compose up --build -d
 ```
 
-**Step 6: Verify**
+Verify:
 ```bash
-# Check container status
-docker-compose ps
+docker-compose ps                                  # both services should be "Up"
+curl -k https://localhost:5001/api/health           # {"status":"healthy",...}
+docker-compose logs -f                              # watch logs
+```
 
-# Check health (HTTPS)
+### 4. Microsoft Entra ID login (optional)
+
+An app registration (`ai4sr-dev`) already exists in tenant `88ffe1c8-07b4-40b5-b4de-00f9b61e942b`. To enable user login:
+
+1. Add these to `.env`:
+   ```bash
+   MICROSOFT_CLIENT_ID=6e631254-d0bc-4c82-b729-7a9a1c99bee0
+   MICROSOFT_CLIENT_SECRET=<your-client-secret>
+   MICROSOFT_TENANT_ID=88ffe1c8-07b4-40b5-b4de-00f9b61e942b
+   ```
+2. Ensure the **Redirect URI** in Azure Portal matches your deployment URL:
+   - Azure Portal → App registrations → `ai4sr-dev` → Authentication → Web → Redirect URIs
+   - Production: `https://ai4sr.euda.europa.eu:5001/auth/callback` (already registered)
+   - Local dev: add `https://localhost:5001/auth/callback` (ask an admin)
+3. Leave `MICROSOFT_REDIRECT_URI` **unset** in `.env` — the app auto-detects it from the request URL
+4. Restart: `docker-compose restart`
+
+> **Important**: The redirect URI must exactly match one of the URIs registered in Azure Portal. If they don't match, Entra ID will reject the callback with `AADSTS50011`. If running behind a reverse proxy that changes the Host header, set `MICROSOFT_REDIRECT_URI` explicitly in `.env` to the external URL users see.
+
+**Current app registration:**
+| Setting | Value |
+|---|---|
+| App name | `ai4sr-dev` |
+| App (client) ID | `6e631254-d0bc-4c82-b729-7a9a1c99bee0` |
+| Tenant | `88ffe1c8-07b4-40b5-b4de-00f9b61e942b` (AzureADMyOrg) |
+| Redirect URI | `https://ai4sr.euda.europa.eu:5001/auth/callback` |
+| API permission | `User.Read` (delegated, Microsoft Graph) |
+| Auth flow | Authorization Code (MSAL ConfidentialClient) |
+
+### 5. Azure service principal permissions
+
+The `ai4sr-dev` service principal already has the following roles on `oai-ai4sr`:
+
+| Role | Scope | Purpose |
+|---|---|---|
+| **Cognitive Services OpenAI User** | `oai-ai4sr` | Chat completions + embeddings |
+| **Azure AI User** | `oai-ai4sr` | AI service access |
+| **Azure AI Developer** | `oai-ai4sr` | Agent/project operations |
+
+Two users also have **Azure AI User** + **Cognitive Services OpenAI Contributor** on the `oai-ai4sr-project`.
+
+To add a new user or service principal: Azure Portal → `oai-ai4sr` → Access control (IAM) → Add role assignment → assign **Cognitive Services OpenAI User** at minimum.
+
+### 6. Data persistence and backup
+
+Docker volumes mount local directories into the containers:
+
+| Container path | Host path | Contains |
+|---|---|---|
+| `/app/data` | `./data/` | SQLite database (`review.db`), runtime settings, RAG embeddings |
+| `/app/logs` | `./logs/` | Application logs |
+
+**Backup:**
+```bash
+# Stop the app (ensures clean DB state)
+docker-compose down
+
+# Copy the data directory
+cp -r data/ backup/data-$(date +%Y%m%d)/
+
+# Restart
+docker-compose up -d
+```
+
+**Restore:**
+```bash
+docker-compose down
+cp -r backup/data-YYYYMMDD/ data/
+docker-compose up -d
+```
+
+The SQLite database uses WAL mode — it can be safely copied while the app is running, but stopping first guarantees consistency.
+
+### 7. Updating / upgrading
+
+```bash
+# Pull latest code
+git pull origin main
+
+# Rebuild and restart (data is preserved in volumes)
+docker-compose up --build -d
+
+# Verify
 curl -k https://localhost:5001/api/health
-
-# View logs
-docker-compose logs -f
 ```
 
-**Step 7: Access the application**
-Open https://localhost:5001 in your browser.
+The database schema auto-migrates on startup (`init_db()` in `run.py`).
 
-**Note:** Self-signed certificates will trigger a browser security warning. Click "Advanced" → "Proceed to localhost" to continue. For production, replace with certificates from a trusted CA (e.g., Let's Encrypt).
+### 8. Monitoring
 
-### Option 2: Local Development
+- **Health check**: `GET /api/health` — returns `{"status": "healthy"}` or 503
+- **Docker healthcheck**: Both containers have built-in healthchecks (every 30s, 3 retries)
+- **Logs**: `docker-compose logs -f` or check `./logs/app.log` on the host
+- **Log level**: Set `LOG_LEVEL=DEBUG` in `.env` for verbose output
 
-**Step 1: Clone and navigate**
+---
+
+## Configuration Reference
+
+### Required (production)
+
+| Variable | Description |
+|---|---|
+| `FLASK_SECRET_KEY` | Random 64-char hex string for session signing |
+| `FLASK_ENV` | Set to `production` |
+
+### Azure OpenAI
+
+| Variable | Default | Description |
+|---|---|---|
+| `AZURE_OPENAI_DIRECT_ENDPOINT` | (derived) | Direct Azure OpenAI endpoint, e.g. `https://oai-ai4sr.cognitiveservices.azure.com` |
+| `AZURE_EXISTING_AIPROJECT_ENDPOINT` | — | AI Projects endpoint (alternative to direct endpoint) |
+| `AZURE_OPENAI_DEPLOYMENT_NAME` | `gpt-4.1` | Chat completion deployment name |
+| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME` | `text-embedding-3-small` | Embedding deployment name |
+| `AZURE_OPENAI_API_VERSION` | `2024-12-01-preview` | Azure OpenAI API version |
+
+### Authentication
+
+| Variable | Description |
+|---|---|
+| `MICROSOFT_TENANT_ID` | Azure AD tenant ID |
+| `MICROSOFT_CLIENT_ID` | App registration client ID |
+| `MICROSOFT_CLIENT_SECRET` | App registration client secret |
+| `MICROSOFT_REDIRECT_URI` | OAuth callback URL (auto-detected if not set) |
+
+### Fallback
+
+| Variable | Description |
+|---|---|
+| `OPENAI_KEY` | OpenAI API key — used when Azure is unavailable |
+
+### Optional
+
+| Variable | Default | Description |
+|---|---|---|
+| `FLASK_PORT` | `5001` | Application port |
+| `FLASK_HOST` | `0.0.0.0` | Bind address |
+| `DB_PATH` | `data/review.db` | SQLite database path |
+| `LOG_LEVEL` | `INFO` | Logging level |
+| `OPENALEX_EMAIL` | `noreply@example.com` | Polite pool email for OpenAlex API |
+
+All variables can also be configured at runtime via the Settings UI (gear icon in the app). Runtime settings are stored in `data/runtime_settings.json` with `0600` permissions and override `.env` values.
+
+---
+
+## Security Notes
+
+- **Session cookies** are `HttpOnly`, `SameSite=Lax`, and `Secure` (in production)
+- **CSRF protection**: state-changing requests are checked against the `Origin` header
+- **API keys** stored in `data/runtime_settings.json` are file-permission-protected (`0600`). For higher security, use Azure Key Vault and inject secrets as environment variables
+- **Error messages** returned to clients are generic; details are logged server-side only
+- **Project names** are validated (alphanumeric, spaces, hyphens, underscores, dots; max 128 chars)
+- **No zip/archive files** should be committed to the repository
+- **Client secret rotation**: when rotating the `MICROSOFT_CLIENT_SECRET`, update `.env` and run `docker-compose restart`
+
+---
+
+## Troubleshooting
+
+### Authentication / Login Issues
+
+**`AADSTS50011: The redirect URI does not match`**
+- The redirect URI sent by the app doesn't match what's registered in Azure Portal
+- Fix: leave `MICROSOFT_REDIRECT_URI` unset in `.env` (auto-detect), or set it to exactly match the registered URI
+- Check registered URIs: Azure Portal → App registrations → `ai4sr-dev` → Authentication
+
+**`AADSTS700016: Application not found in tenant`**
+- The `MICROSOFT_CLIENT_ID` or `MICROSOFT_TENANT_ID` is wrong
+- Verify values match the app registration in Azure Portal
+
+**Login button does nothing / "Failed to initiate login"**
+- `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, or `MICROSOFT_TENANT_ID` not set
+- Check `.env` or configure via Settings UI
+
+### Azure OpenAI Issues
+
+**`Azure chat completion failed and OPENAI_KEY not set for fallback`**
+- Neither Azure nor OpenAI is reachable. Check:
+  1. `AZURE_OPENAI_DIRECT_ENDPOINT` or `AZURE_EXISTING_AIPROJECT_ENDPOINT` is set
+  2. Service principal credentials are correct
+  3. Network allows outbound HTTPS to `*.openai.azure.com`
+
+**`Azure configuration test failed`**
+- Click "Test Azure Configuration" in Settings — check server logs (`docker-compose logs -f`) for details
+- Common cause: deployment name doesn't exist on the endpoint (use "Refresh models from Azure" in Settings to see available models)
+
+### Docker Issues
+
+**Container won't start / keeps restarting:**
 ```bash
-git clone <repository-url>
-cd ai4sr
+docker-compose logs ai4sr        # check Flask app logs
+docker-compose logs nginx         # check nginx logs
 ```
 
-**Step 2: Install dependencies**
+**Port 5001 already in use:**
 ```bash
-pip install -r requirements.txt
-pip install -e .
+lsof -ti:5001 | xargs kill       # kill existing process
+# Or change port in .env: FLASK_PORT=5002
+# And update docker-compose.yml: "5002:443" under nginx ports
 ```
 
-**Step 3: Create environment file**
+**Health check fails after startup:**
+- Wait 40 seconds (start_period is 40s)
+- Check if `.env` has valid API credentials
+- Check `docker-compose logs -f` for errors
+
+### Database Issues
+
+**"Database locked" errors:**
+- SQLite uses WAL mode with 30s timeout — this handles most concurrency
+- If persistent: restart the app (`docker-compose restart`)
+
+**Corrupt database / fresh start:**
 ```bash
-cp env.example .env
+docker-compose down
+rm data/review.db                 # WARNING: deletes all data
+docker-compose up -d              # database auto-recreates
 ```
 
-**Step 4: Configure API key**
-Edit `.env` and add your OpenAI API key:
-```bash
-OPENAI_KEY=sk-your-api-key-here
-```
-
-**Step 5: Run the application**
-```bash
-python run.py
-```
-
-**Step 6: Verify**
-```bash
-# In another terminal
-curl http://localhost:5001/api/health
-```
-
-**Step 7: Access the application**
-Open http://localhost:5001 in your browser.
-
-**Note:** Local development runs on HTTP. For HTTPS, use Docker deployment with nginx reverse proxy.
-
-## Configuration
-
-### Required Environment Variables
-
-At minimum, you need **one** of the following:
-
-- `OPENAI_KEY`: Your OpenAI API key (get from https://platform.openai.com/api-keys)
-- `AZURE_EXISTING_AIPROJECT_ENDPOINT`: Azure AI Project endpoint (see `SETUP_AZURE.md`)
-
-### Production Environment Variables
-
-For production deployments, **required**:
-```bash
-FLASK_SECRET_KEY=<generate-with: python -c "import secrets; print(secrets.token_hex(32))">
-FLASK_ENV=production
-```
-
-### Optional Environment Variables
-
-See `env.example` for all available options. Common ones:
-
-```bash
-FLASK_PORT=5001              # Port to run on (default: 5001)
-FLASK_HOST=0.0.0.0           # Host to bind to (default: 0.0.0.0)
-LOG_LEVEL=INFO               # Logging level (DEBUG, INFO, WARNING, ERROR)
-DB_PATH=data/review.db       # Database file path
-```
+---
 
 ## Usage
 
 ### Literature Review Mode
-1. Click "New Project" to create a research project
-2. Ask a research question (e.g., "What are the main causes of overdose in Eastern Europe?")
-3. The AI will search PubMed, screen papers, and provide relevant results
-4. Papers are scored with detailed rationale for inclusion/exclusion
+1. Create a project (click "New Project")
+2. Type a research question (e.g., "What are the effects of SGLT2 inhibitors on heart failure?")
+3. The app searches PubMed + OpenAlex, screens papers with AI, and stores results
+4. Review papers with relevance scores and PICO-based rationale
 
 ### RAG Chat Mode
-1. Upload your research papers
-2. Ask questions about specific papers or research topics
-3. Get AI-powered insights from your document collection
+1. Switch to RAG mode on an existing project
+2. Ask questions about your collected papers
+3. The AI retrieves relevant papers via embeddings and synthesizes an answer
 
-### Settings
-- Click the ⚙️ Settings button to configure your API key
-- Set default paper limits
-- Manage project preferences
+### Model Selection
+Users can choose which Azure OpenAI model to use via **Settings > Chat Model**:
+- The dropdown is populated live from your Azure subscription (click "Refresh models from Azure")
+- Shows all deployed chat and embedding models across your Cognitive Services accounts
+- You can also type a custom deployment name manually
+- Changes take effect immediately for all subsequent requests
+
+### PICO Framework
+1. Define Population, Intervention, Comparison, Outcome for your project
+2. Click "Expand PICO" to generate optimized search queries
+3. Use "Generate Corpus" to run the expanded queries at scale
+
+---
 
 ## Docker Commands
 
 ```bash
-# Start application
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop application
-docker-compose down
-
-# Rebuild and restart
-docker-compose up --build -d
-
-# Check status
-docker-compose ps
+docker-compose up --build -d        # Build and start
+docker-compose down                 # Stop
+docker-compose logs -f              # Stream logs
+docker-compose restart              # Restart after config change
+docker-compose ps                   # Check status
 ```
 
-## Project Structure
+## Local Development
 
-```
-ai4sr/
-├── agents/           # AI agents for literature review and RAG
-├── webapp/           # Flask web application
-├── db/              # Database schema and connection
-├── static/          # Frontend assets (CSS, JS)
-├── templates/       # HTML templates
-├── data/            # Database and embeddings storage (persisted)
-├── logs/            # Application logs (persisted)
-├── run.py           # Application entry point
-├── Dockerfile       # Container definition
-├── docker-compose.yml
-└── nginx/           # Nginx reverse proxy configuration
-    ├── nginx.conf   # Nginx SSL reverse proxy config
-    ├── generate-certs.sh  # Script to generate self-signed certificates
-    └── ssl/         # SSL certificates (gitignored)
-```
-
-## Troubleshooting
-
-### Docker Issues
-
-**Container won't start:**
 ```bash
-# Check logs
-docker-compose logs
-
-# Rebuild from scratch
-docker-compose down
-docker-compose up --build
-```
-
-**Port already in use:**
-- Change `FLASK_PORT` in `.env` to a different port (e.g., `5002`)
-- Update docker-compose.yml nginx port mapping: `"5002:443"`
-
-**Health check fails:**
-- Wait 40 seconds for initial startup
-- Check logs: `docker-compose logs -f`
-- Verify API key is set in `.env`
-
-### API Key Issues
-
-**"Configuration validation failed":**
-- Ensure `OPENAI_KEY` or `AZURE_EXISTING_AIPROJECT_ENDPOINT` is set in `.env`
-- Verify the key is valid and has sufficient credits
-- Test in Settings panel after starting the app
-
-### Database Issues
-
-**Database errors:**
-```bash
-# Delete and recreate (data will be lost)
-rm data/review.db
-# Restart application - database will auto-initialize
-```
-
-**Permission errors:**
-- Ensure `data/` and `logs/` directories are writable
-- In Docker: volumes should be mounted correctly
-
-### Local Development Issues
-
-**Import errors:**
-```bash
-# Reinstall dependencies
+# Using conda (recommended)
+conda activate ai4sr
 pip install -r requirements.txt
 pip install -e .
+
+# Run in dev mode
+FLASK_ENV=development python run.py
+
+# Run tests
+python test_app.py                  # App + endpoint tests
+python test_azure_setup.py          # Azure config validation
+python test_embeddings.py           # Embedding tests
 ```
 
-**Port conflicts:**
-- Change `FLASK_PORT` in `.env`
-- Or stop existing process: `lsof -ti:5001 | xargs kill`
+Makefile shortcuts: `make dev`, `make run-docker`, `make stop`, `make logs`.
 
-## Production Deployment
+---
 
-### Requirements
-1. Set `FLASK_ENV=production` in `.env`
-2. Generate and set `FLASK_SECRET_KEY`:
-   ```bash
-   python -c "import secrets; print(secrets.token_hex(32))"
-   ```
-3. Use a production WSGI server (gunicorn) instead of Flask dev server
-4. Configure proper logging and monitoring
-5. Replace self-signed SSL certificates with trusted certificates
+## Architecture
 
-### HTTPS/SSL Configuration
-
-The application uses nginx as a reverse proxy for HTTPS termination. By default, self-signed certificates are provided for development/testing.
-
-**For Production:**
-1. Replace self-signed certificates in `nginx/ssl/` with certificates from a trusted CA:
-   - **Let's Encrypt** (free, automated): Use certbot with nginx plugin
-   - **Custom certificates**: Place `cert.pem` and `key.pem` in `nginx/ssl/`
-2. Update `nginx/nginx.conf` if needed for your certificate setup
-3. Restart containers: `docker-compose restart nginx`
-
-**Self-Signed Certificates (Development):**
-- Certificates are generated automatically via `./nginx/generate-certs.sh`
-- Browsers will show security warnings - this is expected for self-signed certs
-- Click "Advanced" → "Proceed to localhost" to bypass the warning
-
-### Docker Production
-```bash
-# Set production environment
-echo "FLASK_ENV=production" >> .env
-echo "FLASK_SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')" >> .env
-
-# Generate SSL certificates (or use your own)
-./nginx/generate-certs.sh
-
-# Deploy
-docker-compose up -d
+```
+webapp/          Flask app (routes.py, auth.py)
+agents/          AI agents — all use azure_config.chat_completion()
+  azure_config.py   AzureOpenAI client, chat + embedding with OpenAI fallback
+  orchestrator.py   Coordinates literature review pipeline + RAG Q&A
+  screening.py      Two-stage screener (basic + CoT PICO analysis)
+  keyword_exp.py    Query expansion (keywords → concepts → Boolean queries)
+  pico.py           PICO framework → search query generation
+  rag_agent.py      Vector DB (numpy) + similarity search + LLM answer
+  review_agent.py   Structured paper summary extraction
+  cold_start_agent.py  Seeds active learning with initial labels
+db/              SQLite (schema.sql, repository.py)
+static/          SPA frontend (main.js, style.css)
+templates/       index.html
 ```
 
 ## API Endpoints
 
-### Health Check
-- `GET /api/health` - Application health status
-
-### Projects
-- `GET /api/projects` - List all projects
-- `POST /api/projects` - Create a new project
-- `DELETE /api/projects/<id>` - Delete a project
-
-### Conversations
-- `POST /api/start` - Start a new conversation
-- `GET /api/conversations/<project_id>` - Get conversations for a project
-- `GET /api/conversations/<id>/messages` - Get messages for a conversation
-- `POST /api/message` - Send a message (literature review or RAG chat)
-
-### PICO
-- `POST /api/projects/<id>/pico` - Create/update PICO for a project
-- `GET /api/projects/<id>/pico` - Get PICO for a project
-- `POST /api/projects/<id>/expand-pico` - Expand PICO into search queries
-- `GET /api/projects/<id>/queries` - Get expanded queries
-
-### Corpus Generation
-- `POST /api/projects/<id>/generate-corpus` - Generate corpus from queries
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/health` | Health check |
+| POST | `/api/start` | Create conversation |
+| POST | `/api/message` | Send query (modality: `literature` or `rag`) |
+| GET | `/api/projects` | List projects |
+| POST | `/api/projects` | Create project |
+| DELETE | `/api/projects/<id>` | Delete project |
+| POST | `/api/projects/<id>/pico` | Save PICO |
+| POST | `/api/projects/<id>/expand-pico` | Expand PICO to queries |
+| POST | `/api/projects/<id>/generate-corpus` | Batch corpus generation |
+| GET/POST | `/api/settings` | Read/write runtime config |
+| GET | `/api/azure-deployments` | List available models from Azure |
+| POST | `/api/test-azure-config` | Validate Azure connection |
 
 ## Additional Documentation
 
-- `QUICK_START.md` - Quick testing and verification guide
-- `SETUP_AZURE.md` - Azure AI Projects configuration
-- `EMBEDDINGS_SETUP.md` - Embeddings configuration details
-- `env.example` - All available environment variables
-
-## Development
-
-```bash
-# Install development dependencies
-pip install -r requirements.txt
-pip install -e .
-
-# Run in development mode
-FLASK_ENV=development FLASK_DEBUG=True python run.py
-
-# Run tests
-python test_app.py
-```
+- `SETUP_AZURE.md` — Azure AI Projects setup
+- `EMBEDDINGS_SETUP.md` — Embedding deployment configuration
+- `CREDENTIALS_GUIDE.md` — Service principal setup
+- `env.example` — All environment variables with descriptions
 
 ## License
 

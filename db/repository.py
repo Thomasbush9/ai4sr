@@ -28,12 +28,16 @@ def get_or_create_project(con: sqlite3.Connection, name: str) -> int:
     return cur.lastrowid
 
 # ---------- upsert paper (include/maybe) ----------
+# SECURITY NOTE: cols is a static allowlist defined here, never derived from user input.
+# The f-string interpolation of column names is safe because it only joins these literals.
+_PAPER_COLS = (
+    "project_id", "pmid", "pmcid", "doi", "title", "abstract", "authors", "year",
+    "venue", "volume", "issue", "pubmed_url", "doi_url", "url", "pdf_path",
+    "status", "score", "rationale", "citations_crossref", "fingerprint",
+)
+
 def upsert_paper(con: sqlite3.Connection, project_id: int, paper: Dict) -> int:
-    cols = [
-        "project_id", "pmid", "pmcid", "doi", "title", "abstract", "authors", "year",
-        "venue", "volume", "issue", "pubmed_url", "doi_url", "url", "pdf_path",
-        "status", "score", "rationale", "citations_crossref", "fingerprint"
-    ]
+    cols = list(_PAPER_COLS)
     vals = [project_id] + [paper.get(k) for k in cols[1:]]
 
     # Insert if new (unique constraints on doi/pmid/pmcid/fingerprint)

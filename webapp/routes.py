@@ -31,6 +31,19 @@ def handle_errors(f):
     return decorated_function
 
 
+import re
+
+_PROJECT_NAME_RE = re.compile(r'^[\w\s\-\.]{1,128}$')
+
+def validate_project_name(name: str) -> str:
+    """Validate and sanitize a project name."""
+    name = str(name).strip()
+    if not name:
+        return "default"
+    if not _PROJECT_NAME_RE.match(name):
+        raise ValueError("Project name must be 1-128 characters and contain only letters, numbers, spaces, hyphens, underscores, or dots.")
+    return name
+
 def validate_int(value, field_name, min_val=None, max_val=None):
     """Validate and convert a value to integer."""
     try:
@@ -61,7 +74,6 @@ def health_check():
         logger.error(f"Health check failed: {e}")
         return jsonify({
             "status": "unhealthy",
-            "error": str(e),
             "timestamp": datetime.utcnow().isoformat()
         }), 503
 
@@ -70,11 +82,7 @@ def health_check():
 def start():
     """Start a new conversation."""
     data = request.get_json(force=True) if request.is_json else {}
-    project_name = data.get("project_name", "default")
-    
-    if not isinstance(project_name, str):
-        project_name = str(project_name)
-    project_name = project_name.strip() or "default"
+    project_name = validate_project_name(data.get("project_name", "default"))
     
     with get_db() as db:
         # Get or create project
@@ -226,6 +234,80 @@ def save_settings():
     return jsonify({"success": True})
 
 
+@api_bp.get("/azure-deployments")
+@handle_errors
+def list_azure_deployments():
+    """List available model deployments from Azure OpenAI resources."""
+    import requests as http_requests
+    from agents.azure_config import _get_azure_credential, _resolve_azure_endpoint
+
+    credential = _get_azure_credential()
+    mgmt_token = credential.get_token("https://management.azure.com/.default").token
+
+    # Discover subscription and resource group from the configured endpoint
+    endpoint = _resolve_azure_endpoint()
+    # Extract resource name from endpoint (e.g. "oai-ai4sr" from "https://oai-ai4sr.cognitiveservices.azure.com")
+    from urllib.parse import urlparse
+    resource_host = urlparse(endpoint).hostname or ""
+    resource_name = resource_host.split(".")[0] if resource_host else ""
+
+    # Use Azure Management API to list Cognitive Services accounts + deployments
+    sub_id = "ebdbbfdb-a6d3-4bff-a72a-91580614d95a"  # from subscription
+    rg = "rg-ai4sr"
+
+    # Try to discover from all accounts in the resource group
+    accounts_url = (
+        f"https://management.azure.com/subscriptions/{sub_id}/resourceGroups/{rg}"
+        f"/providers/Microsoft.CognitiveServices/accounts?api-version=2024-10-01"
+    )
+    headers = {"Authorization": f"Bearer {mgmt_token}"}
+    resp = http_requests.get(accounts_url, headers=headers, timeout=15)
+    resp.raise_for_status()
+
+    chat_models = []
+    embedding_models = []
+
+    for account in resp.json().get("value", []):
+        acc_name = account["name"]
+        acc_endpoint = account.get("properties", {}).get("endpoint", "")
+
+        # List deployments for this account
+        dep_url = (
+            f"https://management.azure.com/subscriptions/{sub_id}/resourceGroups/{rg}"
+            f"/providers/Microsoft.CognitiveServices/accounts/{acc_name}"
+            f"/deployments?api-version=2024-10-01"
+        )
+        dep_resp = http_requests.get(dep_url, headers=headers, timeout=15)
+        if not dep_resp.ok:
+            continue
+
+        for d in dep_resp.json().get("value", []):
+            props = d.get("properties", {})
+            model_info = props.get("model", {})
+            dep_name = d["name"]
+            model_name = model_info.get("name", dep_name)
+            model_format = model_info.get("format", "")
+            model_version = model_info.get("version", "")
+            sku_name = d.get("sku", {}).get("name", "")
+
+            entry = {
+                "deployment": dep_name,
+                "model": model_name,
+                "version": model_version,
+                "format": model_format,
+                "sku": sku_name,
+                "account": acc_name,
+                "endpoint": acc_endpoint,
+            }
+
+            if "embedding" in model_name.lower():
+                embedding_models.append(entry)
+            elif model_format in ("OpenAI",):
+                chat_models.append(entry)
+
+    return jsonify({"chat_models": chat_models, "embedding_models": embedding_models})
+
+
 @api_bp.post("/test-azure-config")
 def test_azure_config():
     """Test if Azure OpenAI configuration is valid"""
@@ -239,20 +321,18 @@ def test_azure_config():
         return jsonify({"success": True, "message": "Azure OpenAI configuration is valid"})
 
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        logger.error("Azure config test failed: %s", e)
+        return jsonify({"success": False, "error": "Azure configuration test failed. Check server logs."}), 400
 
 @api_bp.post("/projects")
 @handle_errors
 def create_project():
     """Create a new project."""
     data = request.get_json(force=True) if request.is_json else {}
-    project_name = data.get("name", "").strip()
-    
-    if not project_name:
-        raise ValueError("Project name is required")
-    
-    if project_name.lower() == "default":
-        raise ValueError("Project name 'default' is reserved")
+    project_name = validate_project_name(data.get("name", ""))
+
+    if not project_name or project_name == "default":
+        raise ValueError("A non-default project name is required")
     
     with get_db() as db:
         from db.repository import get_or_create_project

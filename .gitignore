@@ -54,6 +54,10 @@ Thumbs.db
 # Migration scripts (optional - uncomment if you want to exclude)
 # migrate_*.py
 
+# Archive artifacts (never commit zips — risk of leaking old secrets)
+*.zip
+*.tar.gz
+
 # Backup files
 *.backup
 *.bak

@@ -30,16 +30,20 @@ docker-compose logs -f
 python scripts/init_db.py
 
 # Run tests
-python test_app.py
+python test_app.py               # Flask app & endpoint tests
 python test_azure_setup.py       # Azure config validation
 python test_embeddings.py        # Embedding model tests
 python test_all_agents.py        # Full agent tests
 python test_agent_quick.py       # Quick agent smoke tests
+python test_db_integration.py    # Database integration tests
+python test_screening.py         # Screening logic tests
 
 # Health check
 curl http://localhost:5001/api/health           # local
 curl -k https://localhost:5001/api/health       # Docker/nginx
 ```
+
+Makefile shortcuts: `make dev` (development), `make run-docker`, `make stop`, `make logs`, `make install`, `make init-db`.
 
 ## Architecture
 
@@ -64,17 +68,34 @@ curl -k https://localhost:5001/api/health       # Docker/nginx
 
 ### Critical Patterns
 
-- **Dual API support**: Azure AI Projects primary, OpenAI as fallback. Configured via env vars — at least one of `OPENAI_KEY` or `AZURE_EXISTING_AIPROJECT_ENDPOINT` required.
+- **Dual API support**: Azure AI Projects primary, OpenAI as fallback. Configured via env vars — at least one of `OPENAI_KEY` or `AZURE_EXISTING_AIPROJECT_ENDPOINT` required. Users can also configure API keys at runtime via the Settings UI, which persists to `settings_store.py` and overrides `.env` values.
+- **Message routing**: `POST /api/message` accepts a `modality` field (`"literature"` or `"rag"`) that determines whether the request goes to the literature review pipeline (`orchestrator.literature_review`) or the RAG Q&A pipeline (`orchestrator.rag_answer`).
 - **Project isolation**: All data (papers, conversations, vector DBs, PICO) scoped by `project_id`.
-- **Paper deduplication**: `_fingerprint()` in `repository.py` hashes normalized title+authors to prevent duplicates.
+- **Paper deduplication**: `_fingerprint()` in `repository.py` hashes normalized title+authors to prevent duplicates across PubMed, OpenAlex, and Crossref.
 - **Active learning pipeline**: Cold start (random) → relevance sampling → uncertainty sampling → auto-labeling for high-confidence predictions → stopping rules based on yield rate.
-- **Agent caching**: Azure agents are created once and cached; see `get_or_create_agent()` in `azure_config.py`.
+- **Agent caching**: Azure agents are created once and cached; see `get_or_create_agent()` in `azure_config.py`. Call `reset_clients()` to invalidate cache on settings change.
+- **Dynamic model discovery**: `GET /api/azure-deployments` queries the Azure Management API to list all deployed models across Cognitive Services accounts. The Settings UI populates chat/embedding model dropdowns from this endpoint.
+- **Error handling**: Routes use `@handle_errors` decorator in `routes.py` to standardize HTTP error responses (400 for ValueError/KeyError, 500 for unexpected errors).
 
 ### Configuration
 
 Central config in `config.py`. Environment variables loaded from `.env` (see `env.example` for full list). Key vars:
-- `AZURE_OPENAI_DEPLOYMENT_NAME` (default: `gpt-4o-mini`)
+- `AZURE_OPENAI_DEPLOYMENT_NAME` (default: `gpt-4.1`)
 - `AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME` (default: `text-embedding-3-small`)
 - `FLASK_SECRET_KEY` (required in production)
 - `DB_PATH` (default: `data/review.db`)
 - `FLASK_PORT` (default: `5001`)
+
+### Key API Endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/start` | Create conversation for a project |
+| `POST /api/message` | Send query (literature search or RAG Q&A) |
+| `GET /api/projects` | List all projects |
+| `POST /api/projects/<id>/pico` | Save PICO framework |
+| `POST /api/projects/<id>/expand-pico` | Expand PICO to search queries |
+| `POST /api/projects/<id>/generate-corpus` | Batch corpus generation |
+| `GET/POST /api/settings` | Read/write runtime API configuration |
+| `GET /api/azure-deployments` | List available models from Azure (live query) |
+| `GET /api/health` | Health check |

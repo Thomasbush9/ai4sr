@@ -13,31 +13,15 @@ load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from agents.azure_config import (
-    get_project_client,
     get_azure_client,
-    get_or_create_agent,
     chat_completion
 )
-
-
-def test_project_client():
-    """Test project client creation."""
-    print("\n" + "="*60)
-    print("TEST 1: Project Client")
-    print("="*60)
-    try:
-        project_client = get_project_client()
-        print(f"✓ Project client created: {type(project_client).__name__}")
-        return True
-    except Exception as e:
-        print(f"✗ Failed: {e}")
-        return False
 
 
 def test_azure_client():
     """Test Azure OpenAI client creation."""
     print("\n" + "="*60)
-    print("TEST 2: Azure OpenAI Client")
+    print("TEST 1: Azure OpenAI Client")
     print("="*60)
     try:
         client = get_azure_client()
@@ -45,25 +29,6 @@ def test_azure_client():
         return True
     except Exception as e:
         print(f"✗ Failed: {e}")
-        return False
-
-
-def test_agent_creation():
-    """Test agent creation separately."""
-    print("\n" + "="*60)
-    print("TEST 3: Agent Creation")
-    print("="*60)
-    try:
-        agent = get_or_create_agent("pico")
-        print(f"✓ Agent created: {agent.name}")
-        print(f"  Type: {type(agent).__name__}")
-        if hasattr(agent, 'name'):
-            print(f"  Name: {agent.name}")
-        return True
-    except Exception as e:
-        print(f"✗ Failed: {e}")
-        import traceback
-        traceback.print_exc()
         return False
 
 
@@ -116,19 +81,13 @@ def main():
     print("="*60)
     
     results = {}
-    results['project_client'] = test_project_client()
-    
-    if results['project_client']:
-        results['azure_client'] = test_azure_client()
-        
-        if results['azure_client']:
-            results['agent_creation'] = test_agent_creation()
-            
-            if results['agent_creation']:
-                results['api_call'] = test_api_call()
-                
-                if results['api_call']:
-                    results['pico_expansion'] = test_pico_expansion()
+    results['azure_client'] = test_azure_client()
+
+    if results['azure_client']:
+        results['api_call'] = test_api_call()
+
+        if results['api_call']:
+            results['pico_expansion'] = test_pico_expansion()
     
     # Summary
     print("\n" + "="*60)

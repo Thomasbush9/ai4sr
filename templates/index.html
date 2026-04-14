@@ -327,19 +327,26 @@
                 <small>Azure AI Project endpoint URL</small>
               </div>
               <div class="form-group">
-                <label for="azure-openai-deployment">Azure OpenAI Deployment Name:</label>
-                <input type="text" id="azure-openai-deployment" placeholder="gpt-4o-mini" autocomplete="off" />
-                <small>Name of the OpenAI deployment in Azure</small>
+                <label for="azure-direct-endpoint">Azure OpenAI Direct Endpoint:</label>
+                <input type="text" id="azure-direct-endpoint" placeholder="https://myresource.openai.azure.com" autocomplete="off" />
+                <small>Direct Azure OpenAI endpoint (auto-derived from Project endpoint if not set)</small>
               </div>
               <div class="form-group">
-                <label for="azure-embedding-deployment">Azure OpenAI Embedding Deployment Name:</label>
-                <input type="text" id="azure-embedding-deployment" placeholder="text-embedding-3-small" autocomplete="off" />
-                <small>Name of the embedding deployment in Azure</small>
+                <label for="azure-openai-deployment">Chat Model (Deployment Name):</label>
+                <input type="text" id="azure-openai-deployment" list="chat-model-options" placeholder="gpt-4.1" autocomplete="off" />
+                <datalist id="chat-model-options">
+                  <!-- Populated dynamically from Azure -->
+                </datalist>
+                <small>Select a deployed model or type a custom deployment name</small>
+                <button type="button" id="refresh-models" class="test-button" style="margin-top:4px;font-size:0.85em;">Refresh models from Azure</button>
               </div>
               <div class="form-group">
-                <label for="azure-agent-name">Azure Agent Name:</label>
-                <input type="text" id="azure-agent-name" placeholder="ai4sr-agent" autocomplete="off" />
-                <small>Default agent name for Azure AI Projects</small>
+                <label for="azure-embedding-deployment">Embedding Model (Deployment Name):</label>
+                <input type="text" id="azure-embedding-deployment" list="embedding-model-options" placeholder="text-embedding-3-small" autocomplete="off" />
+                <datalist id="embedding-model-options">
+                  <!-- Populated dynamically from Azure -->
+                </datalist>
+                <small>Select a model or type your custom Azure deployment name</small>
               </div>
               <div class="form-group">
                 <label for="azure-tenant-id">Microsoft Tenant ID:</label>

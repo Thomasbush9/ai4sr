@@ -14,6 +14,9 @@ class Screener:
     def __init__(self) -> None:
         pass
 
+    def __call__(self, question: str, title: str, abstract: str) -> Dict[str, Any]:
+        return self.forward(question=question, title=title, abstract=abstract)
+
     def forward(self, question: str, title: str, abstract: str) -> Dict[str, Any]:
         prompt = f"""First-pass triage of a study's title and abstract.
 
@@ -41,6 +44,9 @@ Respond in JSON format with keys: "decision" (include/maybe/exclude) and "score"
 class CoTScreener:
     def __init__(self, callbacks=None):
         pass
+
+    def __call__(self, question: str, title: str, abstract: str) -> Dict[str, Any]:
+        return self.forward(question=question, title=title, abstract=abstract)
 
     def forward(self, question: str, title: str, abstract: str) -> Dict[str, Any]:
         prompt = f"""Perform detailed PICO analysis of this paper for systematic review inclusion.

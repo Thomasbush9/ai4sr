@@ -936,15 +936,56 @@ function initSettings() {
   // Profile/Azure settings
   const testAzureConfig = document.getElementById("test-azure-config");
   const azureEndpointInput = document.getElementById("azure-endpoint");
+  const azureDirectEndpointInput = document.getElementById("azure-direct-endpoint");
   const azureOpenAIDeploymentInput = document.getElementById("azure-openai-deployment");
   const azureEmbeddingDeploymentInput = document.getElementById("azure-embedding-deployment");
-  const azureAgentNameInput = document.getElementById("azure-agent-name");
   const azureTenantIdInput = document.getElementById("azure-tenant-id");
   const azureClientIdInput = document.getElementById("azure-client-id");
   const azureClientSecretInput = document.getElementById("azure-client-secret");
   const toggleAzureSecret = document.getElementById("toggle-azure-secret");
   const azureStatus = document.getElementById("azure-status");
-  
+  const refreshModelsBtn = document.getElementById("refresh-models");
+
+  // Fetch available models from Azure and populate datalists
+  function refreshAzureModels() {
+    if (refreshModelsBtn) refreshModelsBtn.textContent = "Loading...";
+    fetch('/api/azure-deployments')
+      .then(resp => resp.json())
+      .then(data => {
+        // Populate chat model datalist
+        const chatList = document.getElementById("chat-model-options");
+        if (chatList && data.chat_models) {
+          chatList.innerHTML = '';
+          data.chat_models.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.deployment;
+            opt.textContent = `${m.model} (${m.account}) [${m.sku}]`;
+            chatList.appendChild(opt);
+          });
+        }
+        // Populate embedding model datalist
+        const embList = document.getElementById("embedding-model-options");
+        if (embList && data.embedding_models) {
+          embList.innerHTML = '';
+          data.embedding_models.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.deployment;
+            opt.textContent = `${m.model} (${m.account}) [${m.sku}]`;
+            embList.appendChild(opt);
+          });
+        }
+        if (refreshModelsBtn) refreshModelsBtn.textContent = "Refresh models from Azure";
+      })
+      .catch(err => {
+        console.error('Failed to fetch Azure models:', err);
+        if (refreshModelsBtn) refreshModelsBtn.textContent = "Refresh models from Azure";
+      });
+  }
+
+  if (refreshModelsBtn) {
+    refreshModelsBtn.addEventListener('click', refreshAzureModels);
+  }
+
   // Appearance settings
   const themeSelect = document.getElementById("theme-select");
   
@@ -990,9 +1031,9 @@ function initSettings() {
       .then(resp => resp.json())
       .then(s => {
         if (s.AZURE_EXISTING_AIPROJECT_ENDPOINT) azureEndpointInput.value = s.AZURE_EXISTING_AIPROJECT_ENDPOINT;
+        if (s.AZURE_OPENAI_DIRECT_ENDPOINT && azureDirectEndpointInput) azureDirectEndpointInput.value = s.AZURE_OPENAI_DIRECT_ENDPOINT;
         if (s.AZURE_OPENAI_DEPLOYMENT_NAME) azureOpenAIDeploymentInput.value = s.AZURE_OPENAI_DEPLOYMENT_NAME;
         if (s.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME) azureEmbeddingDeploymentInput.value = s.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME;
-        if (s.AZURE_AGENT_NAME) azureAgentNameInput.value = s.AZURE_AGENT_NAME;
         if (s.MICROSOFT_TENANT_ID) azureTenantIdInput.value = s.MICROSOFT_TENANT_ID;
         if (s.MICROSOFT_CLIENT_ID) azureClientIdInput.value = s.MICROSOFT_CLIENT_ID;
         if (s.MICROSOFT_CLIENT_SECRET) azureClientSecretInput.value = s.MICROSOFT_CLIENT_SECRET;
@@ -1040,9 +1081,9 @@ function initSettings() {
   function saveSettingsToStorage() {
     // Collect Azure settings
     const azureEndpoint = azureEndpointInput.value.trim();
+    const azureDirectEndpoint = azureDirectEndpointInput ? azureDirectEndpointInput.value.trim() : '';
     const azureOpenAIDeployment = azureOpenAIDeploymentInput.value.trim();
     const azureEmbeddingDeployment = azureEmbeddingDeploymentInput.value.trim();
-    const azureAgentName = azureAgentNameInput.value.trim();
     const azureTenantId = azureTenantIdInput.value.trim();
     const azureClientId = azureClientIdInput.value.trim();
     const azureClientSecret = azureClientSecretInput.value.trim();
@@ -1050,9 +1091,9 @@ function initSettings() {
     // Push Azure settings to backend (persisted server-side, used by agents)
     const azureSettings = {};
     if (azureEndpoint) azureSettings.AZURE_EXISTING_AIPROJECT_ENDPOINT = azureEndpoint;
+    if (azureDirectEndpoint) azureSettings.AZURE_OPENAI_DIRECT_ENDPOINT = azureDirectEndpoint;
     if (azureOpenAIDeployment) azureSettings.AZURE_OPENAI_DEPLOYMENT_NAME = azureOpenAIDeployment;
     if (azureEmbeddingDeployment) azureSettings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME = azureEmbeddingDeployment;
-    if (azureAgentName) azureSettings.AZURE_AGENT_NAME = azureAgentName;
     if (azureTenantId) azureSettings.MICROSOFT_TENANT_ID = azureTenantId;
     if (azureClientId) azureSettings.MICROSOFT_CLIENT_ID = azureClientId;
     if (azureClientSecret) azureSettings.MICROSOFT_CLIENT_SECRET = azureClientSecret;
@@ -1144,6 +1185,7 @@ function initSettings() {
   // Event listeners
   settingsBtn.addEventListener('click', () => {
     loadSettings();
+    refreshAzureModels();
     settingsModal.style.display = 'block';
   });
 
